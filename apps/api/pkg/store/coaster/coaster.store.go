@@ -79,6 +79,43 @@ func (s *store) FindCoaster(id string) (*models.Coaster, error) {
 
 func (s *store) UpdateCoaster(c *models.Coaster) error { return s.db.Save(c).Error }
 
+func (s *store) FindPlayerCoaster(id string) (*models.PlayerCoaster, error) {
+	var pc models.PlayerCoaster
+	if err := s.db.Preload("Coaster").Preload("Coaster.Shop").Preload("Player").
+		First(&pc, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &pc, nil
+}
+
+func (s *store) ListForSale() ([]models.PlayerCoaster, error) {
+	var pcs []models.PlayerCoaster
+	err := s.db.Preload("Coaster").Preload("Coaster.Shop").Preload("Player").
+		Where("listed_for_sale = ?", true).
+		Order("obtained_at desc").Find(&pcs).Error
+	return pcs, err
+}
+
+func (s *store) SetListing(id, ownerID string, listed bool, price int) (int64, error) {
+	res := s.db.Model(&models.PlayerCoaster{}).
+		Where("id = ? AND player_id = ?", id, ownerID).
+		Updates(map[string]any{"listed_for_sale": listed, "price": price})
+	return res.RowsAffected, res.Error
+}
+
+// ClaimListed transfers a listed coaster to the buyer. The guarded UPDATE
+// beats seller-side races; the UNIQUE (player, coaster) index rejects buyers
+// who already own the same coaster (surfaces as an error).
+func (s *store) ClaimListed(tx *gorm.DB, id, sellerID, buyerID string) (int64, error) {
+	res := tx.Model(&models.PlayerCoaster{}).
+		Where("id = ? AND player_id = ? AND listed_for_sale = ?", id, sellerID, true).
+		Updates(map[string]any{
+			"player_id": buyerID, "listed_for_sale": false,
+			"price": 0, "obtained_at": gorm.Expr("NOW()"),
+		})
+	return res.RowsAffected, res.Error
+}
+
 func (s *store) IssuedCount(tx *gorm.DB, shopID, season string) (int64, error) {
 	var n int64
 	err := tx.Model(&models.PlayerCoaster{}).

@@ -46,6 +46,11 @@ type PlayerCoaster struct {
 	CoasterID  string    `gorm:"size:36;not null;uniqueIndex:idx_player_coaster" json:"coaster_id"`
 	Coaster    *Coaster  `gorm:"foreignKey:CoasterID" json:"coaster,omitempty"`
 	ObtainedAt time.Time `json:"obtained_at"`
+	// Marketplace trading (Phase 2 §1): coasters trade player→player for
+	// coins, zero-sum; buying a coaster you already own is impossible
+	// (UNIQUE above).
+	ListedForSale bool `gorm:"default:false;index" json:"listed_for_sale"`
+	Price         int  `gorm:"default:0" json:"price"`
 }
 
 func (pc *PlayerCoaster) BeforeCreate(_ *gorm.DB) error {
@@ -72,4 +77,11 @@ type CoasterStore interface {
 	UpdateCoaster(c *Coaster) error
 	// IssuedCount counts grants across a shop's coasters in one season.
 	IssuedCount(tx *gorm.DB, shopID, season string) (int64, error)
+
+	// Trading
+	FindPlayerCoaster(id string) (*PlayerCoaster, error)
+	ListForSale() ([]PlayerCoaster, error)
+	SetListing(id, ownerID string, listed bool, price int) (int64, error)
+	// ClaimListed transfers ownership only if still listed & owned by seller.
+	ClaimListed(tx *gorm.DB, id, sellerID, buyerID string) (int64, error)
 }

@@ -81,18 +81,42 @@ export default function Album() {
         )}
         <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
           {coasters.map((c) => (
-            <div key={c.id} style={{ textAlign: 'center', width: 96 }}>
+            <div key={c.owned_id} style={{ textAlign: 'center', width: 104 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={coasterArt(c)}
                 alt={`${c.tier} coaster`}
                 title={`${c.shop_code ?? c.shop_id} · ${c.tier} · ${c.season}`}
-                style={{ width: 80, height: 80 }}
+                style={{ width: 80, height: 80, opacity: c.listed_for_sale ? 0.55 : 1 }}
               />
               <div className="muted" style={{ fontSize: 11 }}>
                 {c.shop_code ?? '—'}
-                {c.tier === 'OPENING_NIGHT' ? ' 🥇' : ''}
+                {c.tier === 'OPENING_NIGHT' ? ' 🥇' : c.tier === 'REGULAR' ? ' ⭐' : ''}
               </div>
+              {c.listed_for_sale ? (
+                <button
+                  className="secondary"
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                  onClick={() => {
+                    if (!token) return;
+                    void api.unlistCoaster(token, c.owned_id).then(() => refresh(token));
+                  }}
+                >
+                  Unlist ({c.price}c)
+                </button>
+              ) : (
+                <button
+                  className="secondary"
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                  onClick={() => {
+                    if (!token) return;
+                    const p = Number(prompt('List price (coins)?', '50') ?? 0);
+                    if (p >= 1) void api.listCoaster(token, c.owned_id, p).then(() => refresh(token));
+                  }}
+                >
+                  Trade
+                </button>
+              )}
             </div>
           ))}
         </div>

@@ -1,5 +1,6 @@
 import type {
   PhotoView,
+  PlayerCoasterView,
   PlayerJob,
   Plot,
   QuestView,
@@ -44,6 +45,13 @@ export const api = {
   collect: (id: string) => req<TableView>(`/tables/${id}/collect`, { method: 'POST' }),
   // Phase 1
   jobs: () => req<PlayerJob[]>('/jobs/mine'),
+  // Phase 2
+  myCoasters: () => req<PlayerCoasterView[]>('/coasters/mine'),
+  cheers: (playerID: string) =>
+    req<{ total: number }>('/cheers', {
+      method: 'POST',
+      body: JSON.stringify({ player_id: playerID }),
+    }),
   quests: () => req<QuestView[]>('/quests'),
   vending: () => req<VendingMachineView[]>('/vending'),
   vendingBuy: (slotId: string) =>

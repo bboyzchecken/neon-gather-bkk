@@ -28,7 +28,10 @@ type coasterDTO struct {
 
 type playerCoasterDTO struct {
 	coasterDTO
-	ObtainedAt string `json:"obtained_at"`
+	OwnedID       string `json:"owned_id"` // player_coaster id (used for trading)
+	ObtainedAt    string `json:"obtained_at"`
+	ListedForSale bool   `json:"listed_for_sale"`
+	Price         int    `json:"price"`
 }
 
 func toCoasterDTO(c models.Coaster) coasterDTO {
@@ -54,8 +57,11 @@ func (s *Server) MyCoasters(c echo.Context) error {
 			continue
 		}
 		out = append(out, playerCoasterDTO{
-			coasterDTO: toCoasterDTO(*pc.Coaster),
-			ObtainedAt: pc.ObtainedAt.Format(time.RFC3339),
+			coasterDTO:    toCoasterDTO(*pc.Coaster),
+			OwnedID:       pc.ID,
+			ObtainedAt:    pc.ObtainedAt.Format(time.RFC3339),
+			ListedForSale: pc.ListedForSale,
+			Price:         pc.Price,
 		})
 	}
 	return c.JSON(http.StatusOK, out)
