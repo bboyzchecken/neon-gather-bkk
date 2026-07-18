@@ -107,7 +107,7 @@ The API container auto-migrates and seeds on boot.
    or vendor-sell them; sales feed the weekly earnings leaderboard.
 6. Open a second browser (or the guest mode) to see avatars sync in realtime.
 
-## Testing the Phase 2 features (so far)
+## Testing the Phase 2 features
 
 1. **Coasters** — order at any shop table: STANDARD coaster on first order,
    OPENING_NIGHT during the shop's first 7 days, REGULAR at 20 orders of the
@@ -116,7 +116,17 @@ The API container auto-migrates and seeds on boot.
    Coaster market.
 2. **Cheers** — stand next to another player and press **[C]**: the server
    verifies you are both really there. Partners + counts show on the dashboard.
-3. **Mall layout** — shop units now line the walls, wall-to-wall, flanking the
+3. **Chill lounge** — sofa + rug + 🎰 gachapon under the skylight; idling in
+   the bar zone earns cozy XP every minute (server-verified). Ordering at
+   tables fills the 🛂 tasting passport and randomly unlocks 📖 bartender
+   stories — both live in **/album**. Spin the gachapon ([E], 25c) for random
+   shops' seasonal coasters.
+4. **The Bar (hearts)** — Nara is on shift 18:00–02:00: talk daily ([T]
+   in-game or **/npc**), tip, gift (she loves mango smoothies), or order her
+   signature Iced Thai Tea. 10-level story track with real rewards (Lv3 her
+   coaster, Lv5 a secret recipe). Hearts are for ☆ story characters ONLY —
+   never real players (FK-enforced + tested).
+5. **Mall layout** — shop units now line the walls, wall-to-wall, flanking the
    entrance; the hall is fully enclosed (interior direction).
 
 ## Testing the Phase 1 features
