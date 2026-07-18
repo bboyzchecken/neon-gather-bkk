@@ -216,3 +216,35 @@ cabinet (`prop_cabinet_01`) in the world — next slice, before §2 (regular sta
 Same BFL pipeline: `coaster_blank_01` (D1 template shown for STANDARD),
 `coaster_opening_01` (D2 shown for OPENING_NIGHT), `prop_cabinet_01` (B6).
 `copyToWeb` now mirrors an asset's own directory into `apps/web/public/assets/<dir>/`.
+
+### D2.4 Mall layout: shop units line the walls (product direction, 2026-07-19)
+Follow-up direction: shops must sit "ร้านต่อร้าน กำแพงต่อกำแพง" — adjacent units
+along the building walls like a real mall corridor, not free-standing islands.
+Implemented as data + rendering together: the seeder's `mallLayout` places four
+4×4 units flush against the top wall flanking the entrance and two on the left
+wall (adjacent units share boundary lines), with an idempotent `relayoutPlots`
+step so layout changes reach already-seeded databases by plot code. The game
+draws procedural party walls (120px, teak base, green trim) on each unit's side
+edges — back 2.5 tiles only, keeping storefronts open — and facades widened to
+3.4 tiles so the row reads continuous.
+
+### D2.5 Coaster trading + display cabinet (§1 complete)
+Trading rides the marketplace rails: `player_coasters` gained
+`listed_for_sale`/`price`; list/unlist are owner-guarded updates, buying is a
+guarded transfer inside a transaction with zero-sum `MARKET_BUY`/`MARKET_SELL`
+ledger entries. The UNIQUE (player, coaster) index doubles as the "no duplicate
+ownership" rule — buying a design you already own fails cleanly. The B6 display
+cabinet is placed in the food-court zone; [E] opens the in-game collection
+gallery, and the web album lists/unlists coasters for trade.
+
+### D2.6 Bar social §2: regulars + cheers
+`regular_statuses` UNIQUE (player, shop, menu) counts successful orders of the
+same order_name at the same shop; hitting the configured threshold
+(`REGULAR_THRESHOLD`, default 20) EXACTLY once sets `achieved_at` and grants the
+shop's REGULAR-tier coaster. `cheers_logs` stores canonically-ordered pairs
+(UNIQUE) with first_cheers_at + total_count. Iron rule enforced structurally:
+`POST /cheers` verifies BOTH players are connected to the live WS hub and within
+2.5 tiles using the server's own position state (`Hub.Position`) — offline, far,
+self and NPC targets are all impossible, and the client can't fake presence.
+Pure rules live in `domain/social` with tests. Cheers awards a small EXPLORER XP
+to both sides and feeds a new daily quest.

@@ -18,6 +18,8 @@ type Config struct {
 	// Phase 2 — coaster collectibles
 	CoasterSeason    string // current season tag stamped on issued coasters
 	CoasterSeasonCap int    // max grants per shop per season (<=0 = unlimited)
+	// Phase 2 — bar social
+	RegularThreshold int // orders of the same menu at the same shop to become a regular
 
 	Postgres PostgresConfig
 	Redis    RedisConfig

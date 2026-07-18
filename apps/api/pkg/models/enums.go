@@ -131,4 +131,5 @@ const (
 	EventVendingBuy   = "VENDING_BUY"
 	EventVendingSold  = "VENDING_SOLD"
 	EventPhotoTaken   = "PHOTO_TAKEN"
+	EventCheers       = "CHEERS"
 )

@@ -38,6 +38,7 @@ type Server struct {
 	Vending     models.VendingStore
 	Photos      models.PhotoStore
 	Coasters    models.CoasterStore
+	Social      models.SocialStore
 	Storage     *storage.Service
 	Moderation  *moderation.Service
 	Leaderboard *leaderboard.Service
@@ -66,6 +67,7 @@ type ServerParams struct {
 	Vending     models.VendingStore
 	Photos      models.PhotoStore
 	Coasters    models.CoasterStore
+	Social      models.SocialStore
 	Storage     *storage.Service
 	Moderation  *moderation.Service
 	Leaderboard *leaderboard.Service
@@ -80,7 +82,7 @@ func NewServer(lc fx.Lifecycle, p ServerParams) *Server {
 		Users: p.Users, Tokens: p.Tokens, Wallet: p.Wallet,
 		Plots: p.Plots, Items: p.Items, Tables: p.Tables,
 		Jobs: p.Jobs, Quests: p.Quests, Staff: p.Staff,
-		Vending: p.Vending, Photos: p.Photos, Coasters: p.Coasters,
+		Vending: p.Vending, Photos: p.Photos, Coasters: p.Coasters, Social: p.Social,
 		Storage: p.Storage, Moderation: p.Moderation, Leaderboard: p.Leaderboard,
 		Progress: p.Progress, Hub: p.Hub,
 	}
@@ -181,10 +183,19 @@ func (s *Server) buildEcho() *echo.Echo {
 	p.POST("/vending/slots/:slot_id/buy", s.BuyVending)
 	p.POST("/vending/slots/:slot_id/restock", s.RestockVending)
 
-	// Phase 2 — coaster collectibles
+	// Phase 2 — coaster collectibles + trading
 	p.GET("/coasters/mine", s.MyCoasters)
 	p.GET("/plots/:id/coasters", s.ShopCoasters)
 	p.POST("/plots/:id/coaster/design", s.UploadCoasterDesign)
+	p.POST("/coasters/:id/list", s.ListCoasterForSale)
+	p.POST("/coasters/:id/unlist", s.UnlistCoaster)
+	p.GET("/marketplace/coasters", s.BrowseCoasterMarket)
+	p.POST("/marketplace/coasters/:id/buy", s.BuyCoaster)
+
+	// Phase 2 — bar social (regulars + cheers)
+	p.POST("/cheers", s.Cheers)
+	p.GET("/social/regulars/mine", s.MyRegulars)
+	p.GET("/social/cheers/mine", s.MyCheers)
 
 	// Phase 1 — photo booth
 	p.POST("/photos", s.UploadPhoto)

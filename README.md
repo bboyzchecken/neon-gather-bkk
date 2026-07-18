@@ -107,6 +107,18 @@ The API container auto-migrates and seeds on boot.
    or vendor-sell them; sales feed the weekly earnings leaderboard.
 6. Open a second browser (or the guest mode) to see avatars sync in realtime.
 
+## Testing the Phase 2 features (so far)
+
+1. **Coasters** — order at any shop table: STANDARD coaster on first order,
+   OPENING_NIGHT during the shop's first 7 days, REGULAR at 20 orders of the
+   same menu. View them at the 🪙 display cabinet in-game ([E]) or in **/album**,
+   where you can also **Trade** them; listings appear in the dashboard's
+   Coaster market.
+2. **Cheers** — stand next to another player and press **[C]**: the server
+   verifies you are both really there. Partners + counts show on the dashboard.
+3. **Mall layout** — shop units now line the walls, wall-to-wall, flanking the
+   entrance; the hall is fully enclosed (interior direction).
+
 ## Testing the Phase 1 features
 
 1. **Jobs & quests** — everything you already do grants XP: creating items

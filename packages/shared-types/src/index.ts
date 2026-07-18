@@ -226,7 +226,33 @@ export interface CoasterView {
 }
 
 export interface PlayerCoasterView extends CoasterView {
+  owned_id: string;
   obtained_at: string;
+  listed_for_sale: boolean;
+  price: number;
+}
+
+export interface ListedCoasterView extends PlayerCoasterView {
+  listing_id: string;
+  price: number;
+  seller_id: string;
+  seller_name: string | null;
+}
+
+export interface RegularStatusView {
+  shop_id: string;
+  shop_code: string | null;
+  menu_name: string;
+  order_count: number;
+  threshold: number;
+  achieved_at: string | null;
+}
+
+export interface CheersPartnerView {
+  partner_id: string;
+  partner_name: string;
+  total_count: number;
+  first_cheers_at: string;
 }
 
 export interface SharedPhotoView {
@@ -277,7 +303,10 @@ export type ServerMessage =
   | { type: 'vending_updated'; machine_id: string; slot_id: string; stock: number }
   | { type: 'vending_low_stock'; machine_id: string; slot_id: string; item_name: string; stock: number }
   // Phase 2
-  | { type: 'coaster_granted'; tier: CoasterTier; shop_code: string; coaster_id: string };
+  | { type: 'coaster_granted'; tier: CoasterTier; shop_code: string; coaster_id: string }
+  | { type: 'coaster_sold'; listing_id: string; price: number }
+  | { type: 'cheers'; from_id: string; from_name: string; total: number }
+  | { type: 'regular_achieved'; shop_code: string; menu_name: string };
 
 /* ============================================================
  * Cross-window handshake (web shell -> embedded game iframe)

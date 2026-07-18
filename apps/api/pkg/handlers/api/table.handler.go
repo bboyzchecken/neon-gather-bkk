@@ -49,9 +49,11 @@ func (s *Server) OrderTable(c echo.Context) error {
 	s.Hub.BroadcastTable(view.Table(*t))
 	s.Progress.Fire(userID(c), models.EventTableOrder)
 	// Coasters prove "you were there": ordering at a shop grants its coaster
-	// (STANDARD once, OPENING_NIGHT during the shop's first 7 days).
+	// (STANDARD once, OPENING_NIGHT during the shop's first 7 days). The same
+	// order also counts toward regular status for that menu at that shop.
 	if t.PlotID != nil {
 		s.grantOrderCoasters(userID(c), *t.PlotID)
+		s.trackRegular(userID(c), *t.PlotID, name)
 	}
 	// Notify employed staff of the plot so they can come serve (Phase 1 job board).
 	if t.PlotID != nil {

@@ -25,6 +25,7 @@ import (
 	jobstore "neongather/pkg/store/job"
 	photostore "neongather/pkg/store/photo"
 	plotstore "neongather/pkg/store/plot"
+	socialstore "neongather/pkg/store/social"
 	queststore "neongather/pkg/store/quest"
 	staffstore "neongather/pkg/store/staff"
 	tablestore "neongather/pkg/store/table"
@@ -46,6 +47,7 @@ func loadConfig() core.Config {
 	viper.SetDefault("GUEST_BONUS_COINS", 250)
 	viper.SetDefault("COASTER_SEASON", "S1")
 	viper.SetDefault("COASTER_SEASON_CAP", 500)
+	viper.SetDefault("REGULAR_THRESHOLD", 20)
 
 	if loc, err := time.LoadLocation("Asia/Bangkok"); err == nil {
 		time.Local = loc
@@ -61,6 +63,7 @@ func loadConfig() core.Config {
 		GuestBonus:       viper.GetInt("GUEST_BONUS_COINS"),
 		CoasterSeason:    viper.GetString("COASTER_SEASON"),
 		CoasterSeasonCap: viper.GetInt("COASTER_SEASON_CAP"),
+		RegularThreshold: viper.GetInt("REGULAR_THRESHOLD"),
 		Postgres: core.PostgresConfig{
 			Host:     viper.GetString("POSTGRES_HOST"),
 			Port:     viper.GetString("POSTGRES_PORT"),
@@ -149,6 +152,7 @@ func runServer(cfg core.Config) {
 			vendingstore.New,
 			photostore.New,
 			coasterstore.New,
+			socialstore.New,
 			storage.New,
 			moderation.New,
 			leaderboard.New,

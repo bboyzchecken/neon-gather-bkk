@@ -3,7 +3,15 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import type { Item, PlayerJob, QuestView, User } from '@neon/shared-types';
+import type {
+  CheersPartnerView,
+  Item,
+  ListedCoasterView,
+  PlayerJob,
+  QuestView,
+  RegularStatusView,
+  User,
+} from '@neon/shared-types';
 import { api } from '../../lib/api';
 import { clearAuth, loadAuth } from '../../lib/auth';
 
@@ -15,22 +23,31 @@ export default function Dashboard() {
   const [market, setMarket] = useState<Item[]>([]);
   const [jobs, setJobs] = useState<PlayerJob[]>([]);
   const [quests, setQuests] = useState<QuestView[]>([]);
+  const [coasterMarket, setCoasterMarket] = useState<ListedCoasterView[]>([]);
+  const [regulars, setRegulars] = useState<RegularStatusView[]>([]);
+  const [cheers, setCheers] = useState<CheersPartnerView[]>([]);
   const [err, setErr] = useState('');
 
   const refresh = useCallback(async (t: string) => {
     try {
-      const [u, i, m, j, q] = await Promise.all([
+      const [u, i, m, j, q, cm, rg, ch] = await Promise.all([
         api.me(t),
         api.inventory(t),
         api.market(t),
         api.jobs(t).catch(() => [] as PlayerJob[]),
         api.quests(t).catch(() => [] as QuestView[]),
+        api.coasterMarket(t).catch(() => [] as ListedCoasterView[]),
+        api.myRegulars(t).catch(() => [] as RegularStatusView[]),
+        api.myCheers(t).catch(() => [] as CheersPartnerView[]),
       ]);
       setMe(u);
       setInv(i);
       setMarket(m);
       setJobs(j);
       setQuests(q);
+      setCoasterMarket(cm);
+      setRegulars(rg);
+      setCheers(ch);
     } catch (ex) {
       setErr((ex as Error).message);
     }
@@ -229,6 +246,73 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+
+      {(regulars.length > 0 || cheers.length > 0) && (
+        <div className="card">
+          <h3>🍻 Bar social</h3>
+          {regulars.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              {regulars.map((r) => (
+                <div className="spread" key={`${r.shop_id}-${r.menu_name}`} style={{ padding: '4px 0' }}>
+                  <span>
+                    {r.achieved_at ? '⭐ ' : ''}
+                    <b>{r.menu_name}</b>{' '}
+                    <span className="muted">at {r.shop_code ?? r.shop_id.slice(0, 8)}</span>
+                  </span>
+                  <span className="muted">
+                    {r.achieved_at
+                      ? `Regular since ${new Date(r.achieved_at).toLocaleDateString()}`
+                      : `${Math.min(r.order_count, r.threshold)}/${r.threshold}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {cheers.length > 0 && (
+            <p className="muted" style={{ fontSize: 13 }}>
+              Cheers partners:{' '}
+              {cheers.map((c) => `${c.partner_name || 'player'} (${c.total_count}×)`).join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
+
+      {coasterMarket.length > 0 && (
+        <div className="card">
+          <h3>🪙 Coaster market ({coasterMarket.length})</h3>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
+            {coasterMarket.map((l) => (
+              <div key={l.listing_id} style={{ textAlign: 'center', width: 110 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={
+                    l.image_url && l.moderation !== 'REJECTED'
+                      ? l.image_url
+                      : l.tier === 'OPENING_NIGHT'
+                        ? '/assets/coasters/coaster_opening_01.png'
+                        : '/assets/coasters/coaster_blank_01.png'
+                  }
+                  alt={`${l.tier} coaster`}
+                  style={{ width: 72, height: 72 }}
+                />
+                <div className="muted" style={{ fontSize: 11 }}>
+                  {l.shop_code ?? '—'}
+                  {l.tier === 'OPENING_NIGHT' ? ' 🥇' : ''} · <span className="coins">{l.price}</span>
+                  <br />
+                  by {l.seller_name ?? '—'}
+                </div>
+                <button
+                  disabled={l.seller_id === me.id}
+                  style={{ fontSize: 11, padding: '2px 10px' }}
+                  onClick={() => act(() => api.buyCoaster(token!, l.listing_id))}
+                >
+                  {l.seller_id === me.id ? 'Yours' : 'Buy'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <h3>Marketplace ({market.length})</h3>

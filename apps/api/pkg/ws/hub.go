@@ -58,6 +58,19 @@ func (h *Hub) setPlayer(p *Player) {
 	h.mu.Unlock()
 }
 
+// Position returns a player's live position when they are connected.
+// Server-side presence checks (e.g. cheers) rely on this, never on client
+// claims.
+func (h *Hub) Position(playerID string) (x, y float64, online bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	p, ok := h.players[playerID]
+	if !ok {
+		return 0, 0, false
+	}
+	return p.X, p.Y, true
+}
+
 // Players returns a snapshot copy of all connected players.
 func (h *Hub) Players() []Player {
 	h.mu.RLock()

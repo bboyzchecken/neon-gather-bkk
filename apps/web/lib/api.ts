@@ -1,12 +1,15 @@
 import type {
   AuthResponse,
+  CheersPartnerView,
   CoasterView,
   EmploymentView,
+  ListedCoasterView,
   Item,
   JobPostingView,
   PhotoView,
   PlayerCoasterView,
   PlayerJob,
+  RegularStatusView,
   Plot,
   QuestView,
   SharedPhotoView,
@@ -98,6 +101,23 @@ export const api = {
   myCoasters: (token: string) => req<PlayerCoasterView[]>('/coasters/mine', {}, token),
   shopCoasters: (token: string, plotId: string) =>
     req<CoasterView[]>(`/plots/${plotId}/coasters`, {}, token),
+  listCoaster: (token: string, id: string, price: number) =>
+    req<{ listed: boolean }>(
+      `/coasters/${id}/list`,
+      { method: 'POST', body: JSON.stringify({ price }) },
+      token,
+    ),
+  unlistCoaster: (token: string, id: string) =>
+    req<{ listed: boolean }>(`/coasters/${id}/unlist`, { method: 'POST' }, token),
+  coasterMarket: (token: string) => req<ListedCoasterView[]>('/marketplace/coasters', {}, token),
+  buyCoaster: (token: string, listingId: string) =>
+    req<{ bought: boolean; price: number }>(
+      `/marketplace/coasters/${listingId}/buy`,
+      { method: 'POST' },
+      token,
+    ),
+  myRegulars: (token: string) => req<RegularStatusView[]>('/social/regulars/mine', {}, token),
+  myCheers: (token: string) => req<CheersPartnerView[]>('/social/cheers/mine', {}, token),
 
   myPhotos: (token: string) => req<PhotoView[]>('/photos/mine', {}, token),
   deletePhoto: (token: string, id: string) =>

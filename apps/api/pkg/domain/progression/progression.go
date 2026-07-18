@@ -57,6 +57,8 @@ func AwardsFor(event string) []JobXP {
 		return []JobXP{{Job: "EXPLORER", XP: 6}}
 	case "PHOTO_TAKEN":
 		return []JobXP{{Job: "EXPLORER", XP: 18}}
+	case "CHEERS":
+		return []JobXP{{Job: "EXPLORER", XP: 5}}
 	default:
 		return nil
 	}

@@ -95,6 +95,19 @@ func Migrate(d *gorm.DB) error {
 				return tx.Migrator().DropTable("player_coasters", "coasters")
 			},
 		},
+		{
+			ID: "20260719_phase2_social_trading",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(
+					&models.PlayerCoaster{}, // adds listed_for_sale + price
+					&models.RegularStatus{},
+					&models.CheersLog{},
+				)
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("cheers_logs", "regular_statuses")
+			},
+		},
 	})
 	return m.Migrate()
 }
