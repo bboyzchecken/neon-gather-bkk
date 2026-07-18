@@ -1,0 +1,149 @@
+# ============================================================
+# Neon Gather BKK — one-command local stack
+#
+#   Infra only (recommended for dev; run apps yourself):
+#     docker compose up -d
+#
+#   EVERYTHING in containers (Go api + web + game + infra):
+#     docker compose --profile apps up -d --build
+#
+# Env is read from ./.env
+# ============================================================
+name: neon-gather-bkk
+
+services:
+  # ---------------- Infrastructure ----------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: Asia/Bangkok
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${R2_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${R2_SECRET_KEY}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+  # Creates the bucket and makes it publicly readable, then exits.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    environment:
+      R2_ACCESS_KEY: ${R2_ACCESS_KEY}
+      R2_SECRET_KEY: ${R2_SECRET_KEY}
+      R2_IMAGE_BUCKET: ${R2_IMAGE_BUCKET}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 $${R2_ACCESS_KEY} $${R2_SECRET_KEY}; do
+        echo 'waiting for minio...'; sleep 2;
+      done;
+      mc mb --ignore-existing local/$${R2_IMAGE_BUCKET};
+      mc anonymous set download local/$${R2_IMAGE_BUCKET};
+      echo 'minio bucket ready';
+      "
+
+  # ---------------- Application services (profile: apps) ----------------
+  api:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      ENV: production
+      API_PORT: 5000
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_TTL_HOURS: ${JWT_TTL_HOURS}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      R2_ENDPOINT: http://minio:9000
+      R2_REGION: ${R2_REGION}
+      R2_ACCESS_KEY: ${R2_ACCESS_KEY}
+      R2_SECRET_KEY: ${R2_SECRET_KEY}
+      R2_IMAGE_BUCKET: ${R2_IMAGE_BUCKET}
+      R2_PUBLIC_URL: http://localhost:9000/${R2_IMAGE_BUCKET}
+      SIGNUP_BONUS_COINS: ${SIGNUP_BONUS_COINS}
+      GUEST_BONUS_COINS: ${GUEST_BONUS_COINS}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  web:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:5000
+        NEXT_PUBLIC_GAME_URL: http://localhost:5173
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  game:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: apps/game/Dockerfile
+      args:
+        VITE_API_URL: http://localhost:5000
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
