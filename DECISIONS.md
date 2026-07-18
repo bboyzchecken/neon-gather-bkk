@@ -175,7 +175,7 @@ cleanup replaced the template-oss `.gitignore`, restored the template-mangled ro
 `package.json`/`.npmrc`, and moved `@npmcli/template-oss` artifacts
 (`.commitlintrc.js`, `.eslintrc.js`, `.github/` npm workflows) out of the repo.
 
-### D1.8 Phase 1 asset generation
+### D1.8 Phase 1 asset generation (see also D2.3)
 Same BFL FLUX Kontext pipeline (D0.12b) extended with `prop_vending_01`,
 `prop_photobooth_01`, `ui_quest_card_01` (F3 reference) and
 `char_avatar_concept_01` (E1 concept for real-artist handoff, per §0.3 art
@@ -183,3 +183,36 @@ scheduling). The white→alpha post-process now also flood-fills desaturated lig
 from the borders because FLUX kept baking soft ground shadows despite the negative
 prompt (violating the no-baked-shadow rule); raw outputs are kept in `.asset-raw/` so
 post-processing can be re-tuned without re-billing.
+
+---
+
+## Phase 2 — Bar Social Layer & Collectibles (in progress)
+
+### D2.1 Interior art direction (explicit product decision, 2026-07-18)
+Direction from the owner: the world must feel like the INSIDE of one building, not
+shop-after-shop on an open plaza. Implemented in `WorldScene.drawInteriorShell()`:
+full-height back walls (gy=0 / gx=0) with columns, teal windows and a warm glass
+entrance; low cutaway walls with teak cap rails on the two front edges; string-light
+arcs; a warm dim + vignette overlay; concrete hall floor with a terracotta walkway
+cross. Walls are drawn procedurally (Graphics), not generated sprites — exact 2:1
+grid alignment beats AI-generated wall art, and the shell stays compatible with the
+D0.6 night-mode overlay plan. Future zones/floors must stay enclosed the same way.
+
+### D2.2 Coasters (Phase 2 §1) — first slice shipped
+`coasters` has UNIQUE (shop, tier, season); `player_coasters` has UNIQUE
+(player, coaster) so duplicate grants are impossible at the DB level. Issuance only
+happens server-side when a player ORDERS at a shop's table ("you were there"):
+STANDARD once per shop, plus OPENING_NIGHT while server time is inside the 7-day
+window from `plot.rented_at` (pure fn `domain/coasterrules.IsOpeningNight`, tested —
+the window never reopens). Per-shop season cap is config (`COASTER_SEASON`,
+`COASTER_SEASON_CAP`, default 500 — not hardcoded), enforced under a row lock on the
+coaster. Owners upload a 256×256 design through the same moderation stub as facades.
+Seed tables are now linked round-robin to plots so shop-scoped systems (coasters,
+staff wages, order alerts) work out of the box.
+**Deferred within §1:** marketplace trading of coasters and placing the display
+cabinet (`prop_cabinet_01`) in the world — next slice, before §2 (regular status).
+
+### D2.3 Phase 2 asset batch
+Same BFL pipeline: `coaster_blank_01` (D1 template shown for STANDARD),
+`coaster_opening_01` (D2 shown for OPENING_NIGHT), `prop_cabinet_01` (B6).
+`copyToWeb` now mirrors an asset's own directory into `apps/web/public/assets/<dir>/`.

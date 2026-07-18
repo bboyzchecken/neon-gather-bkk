@@ -37,6 +37,7 @@ type Server struct {
 	Staff       models.StaffStore
 	Vending     models.VendingStore
 	Photos      models.PhotoStore
+	Coasters    models.CoasterStore
 	Storage     *storage.Service
 	Moderation  *moderation.Service
 	Leaderboard *leaderboard.Service
@@ -64,6 +65,7 @@ type ServerParams struct {
 	Staff       models.StaffStore
 	Vending     models.VendingStore
 	Photos      models.PhotoStore
+	Coasters    models.CoasterStore
 	Storage     *storage.Service
 	Moderation  *moderation.Service
 	Leaderboard *leaderboard.Service
@@ -78,7 +80,7 @@ func NewServer(lc fx.Lifecycle, p ServerParams) *Server {
 		Users: p.Users, Tokens: p.Tokens, Wallet: p.Wallet,
 		Plots: p.Plots, Items: p.Items, Tables: p.Tables,
 		Jobs: p.Jobs, Quests: p.Quests, Staff: p.Staff,
-		Vending: p.Vending, Photos: p.Photos,
+		Vending: p.Vending, Photos: p.Photos, Coasters: p.Coasters,
 		Storage: p.Storage, Moderation: p.Moderation, Leaderboard: p.Leaderboard,
 		Progress: p.Progress, Hub: p.Hub,
 	}
@@ -178,6 +180,11 @@ func (s *Server) buildEcho() *echo.Echo {
 	p.GET("/vending", s.ListVending)
 	p.POST("/vending/slots/:slot_id/buy", s.BuyVending)
 	p.POST("/vending/slots/:slot_id/restock", s.RestockVending)
+
+	// Phase 2 — coaster collectibles
+	p.GET("/coasters/mine", s.MyCoasters)
+	p.GET("/plots/:id/coasters", s.ShopCoasters)
+	p.POST("/plots/:id/coaster/design", s.UploadCoasterDesign)
 
 	// Phase 1 — photo booth
 	p.POST("/photos", s.UploadPhoto)

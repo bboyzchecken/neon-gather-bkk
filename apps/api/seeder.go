@@ -135,17 +135,41 @@ func seedPlots(d *gorm.DB) error {
 func seedTables(d *gorm.DB) error {
 	var count int64
 	d.Model(&models.DiningTable{}).Count(&count)
-	if count > 0 {
+	if count == 0 {
+		for i := 1; i <= 4; i++ {
+			t := models.DiningTable{
+				Code:  fmt.Sprintf("T-%02d", i),
+				GridX: 4 + i*2,
+				GridY: 16,
+				State: models.TableEmpty,
+			}
+			if err := d.Create(&t).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return linkTablesToPlots(d)
+}
+
+// linkTablesToPlots assigns each unassigned table to a plot so shop-scoped
+// systems (coasters, staff wages, order alerts) have a real shop. Tables are
+// the food court of the nearest plot column. Idempotent.
+func linkTablesToPlots(d *gorm.DB) error {
+	var tables []models.DiningTable
+	if err := d.Where("plot_id IS NULL").Order("code").Find(&tables).Error; err != nil {
+		return err
+	}
+	if len(tables) == 0 {
 		return nil
 	}
-	for i := 1; i <= 4; i++ {
-		t := models.DiningTable{
-			Code:  fmt.Sprintf("T-%02d", i),
-			GridX: 4 + i*2,
-			GridY: 16,
-			State: models.TableEmpty,
-		}
-		if err := d.Create(&t).Error; err != nil {
+	var plots []models.Plot
+	if err := d.Order("code").Find(&plots).Error; err != nil || len(plots) == 0 {
+		return err
+	}
+	for i := range tables {
+		p := plots[i%len(plots)]
+		tables[i].PlotID = &p.ID
+		if err := d.Save(&tables[i]).Error; err != nil {
 			return err
 		}
 	}

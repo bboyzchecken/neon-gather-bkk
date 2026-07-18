@@ -15,6 +15,10 @@ type Config struct {
 	SignupBonus int
 	GuestBonus  int
 
+	// Phase 2 — coaster collectibles
+	CoasterSeason    string // current season tag stamped on issued coasters
+	CoasterSeasonCap int    // max grants per shop per season (<=0 = unlimited)
+
 	Postgres PostgresConfig
 	Redis    RedisConfig
 	R2       R2Config

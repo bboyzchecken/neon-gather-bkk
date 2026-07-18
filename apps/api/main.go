@@ -20,6 +20,7 @@ import (
 	"neongather/pkg/services/moderation"
 	"neongather/pkg/services/progress"
 	"neongather/pkg/services/storage"
+	coasterstore "neongather/pkg/store/coaster"
 	itemstore "neongather/pkg/store/item"
 	jobstore "neongather/pkg/store/job"
 	photostore "neongather/pkg/store/photo"
@@ -43,19 +44,23 @@ func loadConfig() core.Config {
 	viper.SetDefault("JWT_TTL_HOURS", 168)
 	viper.SetDefault("SIGNUP_BONUS_COINS", 1000)
 	viper.SetDefault("GUEST_BONUS_COINS", 250)
+	viper.SetDefault("COASTER_SEASON", "S1")
+	viper.SetDefault("COASTER_SEASON_CAP", 500)
 
 	if loc, err := time.LoadLocation("Asia/Bangkok"); err == nil {
 		time.Local = loc
 	}
 
 	return core.Config{
-		Environment: viper.GetString("ENV"),
-		APIPort:     viper.GetString("API_PORT"),
-		CORSOrigins: splitCSV(viper.GetString("CORS_ORIGINS")),
-		JwtSecret:   viper.GetString("JWT_SECRET_KEY"),
-		JwtTTLHours: viper.GetInt("JWT_TTL_HOURS"),
-		SignupBonus: viper.GetInt("SIGNUP_BONUS_COINS"),
-		GuestBonus:  viper.GetInt("GUEST_BONUS_COINS"),
+		Environment:      viper.GetString("ENV"),
+		APIPort:          viper.GetString("API_PORT"),
+		CORSOrigins:      splitCSV(viper.GetString("CORS_ORIGINS")),
+		JwtSecret:        viper.GetString("JWT_SECRET_KEY"),
+		JwtTTLHours:      viper.GetInt("JWT_TTL_HOURS"),
+		SignupBonus:      viper.GetInt("SIGNUP_BONUS_COINS"),
+		GuestBonus:       viper.GetInt("GUEST_BONUS_COINS"),
+		CoasterSeason:    viper.GetString("COASTER_SEASON"),
+		CoasterSeasonCap: viper.GetInt("COASTER_SEASON_CAP"),
 		Postgres: core.PostgresConfig{
 			Host:     viper.GetString("POSTGRES_HOST"),
 			Port:     viper.GetString("POSTGRES_PORT"),
@@ -143,6 +148,7 @@ func runServer(cfg core.Config) {
 			staffstore.New,
 			vendingstore.New,
 			photostore.New,
+			coasterstore.New,
 			storage.New,
 			moderation.New,
 			leaderboard.New,

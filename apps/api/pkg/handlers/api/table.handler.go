@@ -48,6 +48,11 @@ func (s *Server) OrderTable(c echo.Context) error {
 	}
 	s.Hub.BroadcastTable(view.Table(*t))
 	s.Progress.Fire(userID(c), models.EventTableOrder)
+	// Coasters prove "you were there": ordering at a shop grants its coaster
+	// (STANDARD once, OPENING_NIGHT during the shop's first 7 days).
+	if t.PlotID != nil {
+		s.grantOrderCoasters(userID(c), *t.PlotID)
+	}
 	// Notify employed staff of the plot so they can come serve (Phase 1 job board).
 	if t.PlotID != nil {
 		if staff, err := s.Staff.ActiveStaffForPlot(*t.PlotID); err == nil {

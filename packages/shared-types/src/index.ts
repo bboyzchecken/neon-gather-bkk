@@ -38,6 +38,9 @@ export type PostingStatus = 'OPEN' | 'CLOSED';
 export type EmploymentStatus = 'APPLIED' | 'ACTIVE' | 'ENDED';
 export type PhotoType = 'BOOTH' | 'HEART_SPECIAL';
 
+/* Phase 2 */
+export type CoasterTier = 'STANDARD' | 'SEASONAL' | 'REGULAR' | 'OPENING_NIGHT';
+
 export const ITEM_CATEGORIES: ItemCategory[] = ['DRINK', 'FOOD', 'DECOR', 'MATERIAL', 'MISC'];
 
 /* ============================================================
@@ -212,6 +215,20 @@ export interface PhotoView {
   created_at: string;
 }
 
+export interface CoasterView {
+  id: string;
+  shop_id: string;
+  shop_code: string | null;
+  tier: CoasterTier;
+  season: string;
+  image_url: string | null;
+  moderation: ModerationStatus | null;
+}
+
+export interface PlayerCoasterView extends CoasterView {
+  obtained_at: string;
+}
+
 export interface SharedPhotoView {
   url: string;
   caption: string;
@@ -258,7 +275,9 @@ export type ServerMessage =
   | { type: 'tip_received'; amount: number; employment_id: string }
   | { type: 'wage_paid'; amount: number; table_code: string }
   | { type: 'vending_updated'; machine_id: string; slot_id: string; stock: number }
-  | { type: 'vending_low_stock'; machine_id: string; slot_id: string; item_name: string; stock: number };
+  | { type: 'vending_low_stock'; machine_id: string; slot_id: string; item_name: string; stock: number }
+  // Phase 2
+  | { type: 'coaster_granted'; tier: CoasterTier; shop_code: string; coaster_id: string };
 
 /* ============================================================
  * Cross-window handshake (web shell -> embedded game iframe)

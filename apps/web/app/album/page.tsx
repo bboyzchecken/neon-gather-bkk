@@ -3,20 +3,34 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import type { PhotoView } from '@neon/shared-types';
+import type { PhotoView, PlayerCoasterView } from '@neon/shared-types';
 import { api } from '../../lib/api';
 import { loadAuth } from '../../lib/auth';
+
+/** Template art per tier when the shop hasn't uploaded a custom design. */
+function coasterArt(c: PlayerCoasterView): string {
+  if (c.image_url && c.moderation !== 'REJECTED') return c.image_url;
+  return c.tier === 'OPENING_NIGHT'
+    ? '/assets/coasters/coaster_opening_01.png'
+    : '/assets/coasters/coaster_blank_01.png';
+}
 
 export default function Album() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [photos, setPhotos] = useState<PhotoView[]>([]);
+  const [coasters, setCoasters] = useState<PlayerCoasterView[]>([]);
   const [err, setErr] = useState('');
   const [copied, setCopied] = useState('');
 
   const refresh = useCallback(async (t: string) => {
     try {
-      setPhotos(await api.myPhotos(t));
+      const [ps, cs] = await Promise.all([
+        api.myPhotos(t),
+        api.myCoasters(t).catch(() => [] as PlayerCoasterView[]),
+      ]);
+      setPhotos(ps);
+      setCoasters(cs);
     } catch (ex) {
       setErr((ex as Error).message);
     }
@@ -56,6 +70,33 @@ export default function Album() {
       </div>
       <p className="muted">Shots from the photo booth. Share links are public — anyone with the link can view.</p>
       {err && <div className="error">{err}</div>}
+
+      <div className="card">
+        <h3>🪙 Coaster collection ({coasters.length})</h3>
+        {coasters.length === 0 && (
+          <p className="muted">
+            Order at any shop&apos;s table to collect its coaster — shops in their first
+            7 days also drop a limited opening-night coaster.
+          </p>
+        )}
+        <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
+          {coasters.map((c) => (
+            <div key={c.id} style={{ textAlign: 'center', width: 96 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={coasterArt(c)}
+                alt={`${c.tier} coaster`}
+                title={`${c.shop_code ?? c.shop_id} · ${c.tier} · ${c.season}`}
+                style={{ width: 80, height: 80 }}
+              />
+              <div className="muted" style={{ fontSize: 11 }}>
+                {c.shop_code ?? '—'}
+                {c.tier === 'OPENING_NIGHT' ? ' 🥇' : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {photos.length === 0 && (
         <div className="card">

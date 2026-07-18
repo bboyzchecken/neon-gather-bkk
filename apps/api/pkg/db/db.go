@@ -83,6 +83,18 @@ func Migrate(d *gorm.DB) error {
 				)
 			},
 		},
+		{
+			ID: "20260718_phase2_coasters",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(
+					&models.Coaster{},
+					&models.PlayerCoaster{},
+				)
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("player_coasters", "coasters")
+			},
+		},
 	})
 	return m.Migrate()
 }

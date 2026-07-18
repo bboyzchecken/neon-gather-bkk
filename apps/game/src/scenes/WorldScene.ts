@@ -752,6 +752,14 @@ export class WorldScene extends Phaser.Scene {
       case 'vending_low_stock':
         this.toast(`⚠ ${msg.item_name} almost out of stock (${msg.stock} left)`, 0xcc8844);
         break;
+      case 'coaster_granted':
+        this.toast(
+          msg.tier === 'OPENING_NIGHT'
+            ? `🥇 Opening-night coaster from ${msg.shop_code}!`
+            : `🪙 Coaster collected: ${msg.shop_code}`,
+          0x2ea36a,
+        );
+        break;
     }
   }
 

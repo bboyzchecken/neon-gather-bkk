@@ -1,9 +1,11 @@
 import type {
   AuthResponse,
+  CoasterView,
   EmploymentView,
   Item,
   JobPostingView,
   PhotoView,
+  PlayerCoasterView,
   PlayerJob,
   Plot,
   QuestView,
@@ -92,6 +94,10 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ stars, comment }) },
       token,
     ),
+
+  myCoasters: (token: string) => req<PlayerCoasterView[]>('/coasters/mine', {}, token),
+  shopCoasters: (token: string, plotId: string) =>
+    req<CoasterView[]>(`/plots/${plotId}/coasters`, {}, token),
 
   myPhotos: (token: string) => req<PhotoView[]>('/photos/mine', {}, token),
   deletePhoto: (token: string, id: string) =>
