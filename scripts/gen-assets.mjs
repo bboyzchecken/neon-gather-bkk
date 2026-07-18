@@ -1,7 +1,7 @@
-// Phase 0 asset generation pipeline — BFL FLUX API.
+// Asset generation pipeline (Phase 0 + Phase 1) — BFL FLUX API.
 //
 //   node scripts/gen-assets.mjs --anchor     gen the style-anchor scene -> _STYLE_REF_day.png
-//   node scripts/gen-assets.mjs              gen all Phase 0 assets (skips existing files)
+//   node scripts/gen-assets.mjs              gen all manifest assets (skips existing files)
 //   node scripts/gen-assets.mjs --force      re-gen everything
 //   node scripts/gen-assets.mjs --only key   gen a single asset by key
 //
@@ -73,13 +73,25 @@ async function download(url) {
 }
 
 // ------------------------------------------------------------- post-process
-/** Remove the near-white background (flood fill from the borders) -> alpha. */
+/** Remove the near-white background (flood fill from the borders) -> alpha.
+ * Also treats low-saturation light greys as background so baked-in soft ground
+ * shadows (which FLUX keeps adding despite the negative prompt) get eaten by
+ * the border flood fill. Object interiors are protected by their dark outline. */
 async function whiteToAlpha(buf) {
   const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const { width: w, height: h } = info;
   const TH = 233;
   const idx = (x, y) => (y * w + x) * 4;
-  const nearWhite = (i) => data[i] >= TH && data[i + 1] >= TH && data[i + 2] >= TH;
+  const nearWhite = (i) => {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    if (r >= TH && g >= TH && b >= TH) return true;
+    // light grey / light warm-grey (soft shadow): bright-ish, low-to-mid
+    // saturation. The object interior is protected by its dark outline, so a
+    // generous threshold here only eats border-connected halo + shadow.
+    const mn = Math.min(r, g, b);
+    const mx = Math.max(r, g, b);
+    return mn >= 165 && mx - mn <= 52;
+  };
   const visited = new Uint8Array(w * h);
   const stack = [];
   for (let x = 0; x < w; x++) stack.push([x, 0], [x, h - 1]);
@@ -143,7 +155,8 @@ const STYLE =
 
 const WORLD_TECH =
   'Single object only, centered, isometric three-quarter view, light from the upper-left, ' +
-  'no shadow cast on the ground, no background scenery, no floor under the object — it sits on ' +
+  'absolutely no shadow cast on the ground, no drop shadow, no grey shadow shape under or beside ' +
+  'the object, no background scenery, no floor under the object — it sits on ' +
   'a solid pure white background, full object visible and not cropped.';
 
 const ICON_TECH =
@@ -206,6 +219,14 @@ const ASSETS = [
   A('icon_decor_stool_bar.png', 'icons', 'a teak wooden bar stool.', { alpha: true, size: 512, copyToWeb: true, tech: ICON_TECH }),
   A('icon_decor_plant_monstera.png', 'icons', 'a small monstera plant in a terracotta pot.', { alpha: true, size: 512, copyToWeb: true, tech: ICON_TECH }),
   A('icon_material_basket_woven.png', 'icons', 'a handwoven rattan basket.', { alpha: true, size: 512, copyToWeb: true, tech: ICON_TECH }),
+  // ---- Phase 1 additions ----
+  // world objects (library B4/B5)
+  A('prop_vending_01.png', 'world', 'a tall vending machine: warm cream body with terracotta accent panels and a dark forest-green frame, a large glass front showing neat rows of colorful drink bottles and cans, a blank panel at the top, a dispenser slot at the bottom, a small blank selection keypad.', { alpha: true }),
+  A('prop_photobooth_01.png', 'world', 'a photo booth cabinet: warm cream body with a dark forest-green steel frame, a heavy teal curtain drawn to one side, a small teak bench visible inside, a camera lens module on the interior wall, a blank display panel on the outside, a potted fern beside it.', { alpha: true }),
+  // quest tracker card reference (library F3)
+  A('ui_quest_card_01.png', 'ui', 'a quest tracker UI card on a neutral background: a warm cream rounded card with a small icon slot on the left, three empty text placeholder bars, a checkbox column on the right, and a thin progress bar at the bottom. Soft shadow, dark forest-green outline. No readable text, use plain grey placeholder bars instead of letters.', { tech: 'Flat front-facing view, crisp and readable at small size.' }),
+  // avatar concept lineup for real-artist handoff (library E1 — concept only, not production)
+  A('char_avatar_concept_01.png', 'concepts', 'a character lineup on a plain neutral background: five young adult characters standing in a row — two women, two men, and one androgynous person — full body, front view, casual Southeast Asian streetwear: oversized shirts, skirts, tote bags, sneakers, caps. Clearly different body shapes (one plus-size, one tall and lanky, one petite), different skin tones from light to deep, and varied hairstyles including long hair, a bob cut, and curly hair. Simple readable silhouettes, relaxed friendly poses. Slightly stylized proportions, head slightly larger than realistic.', { aspect: '16:9', tech: 'Full-body character concept lineup, front view, evenly spaced, plain neutral background.' }),
   // F. UI reference sheets (stored for later wiring)
   A('ui_kit_main_01.png', 'ui', 'a cozy casual game UI kit laid out on a neutral background: a large rounded rectangle panel, a primary button, a secondary button, a row of small circular icon buttons, a horizontal progress bar, a small currency chip, a 4x4 inventory slot grid, and a tab bar with three tabs. Warm cream panels, dark forest-green outlines, terracotta accent colour, soft drop shadows, generous rounded corners.', { aspect: '16:9', tech: 'Flat front-facing view, crisp and readable at small size.' }),
   A('ui_frame_rarity_01.png', 'ui', 'a set of four empty square item slot frames in a row, identical shape but different colours indicating rarity tiers: plain grey, teal, purple, and warm gold with a subtle glow. Rounded corners, clean outline, soft inner shadow, on a neutral dark background.', { aspect: '16:9', tech: 'Flat front-facing view, crisp and readable at small size.' }),
@@ -246,6 +267,10 @@ async function genAsset(asset, refB64) {
   });
   const url = await bflWait(task);
   const raw = await download(url);
+  // keep the raw output so post-processing can be re-tuned without re-billing
+  const rawDir = path.join(ROOT, '.asset-raw');
+  fs.mkdirSync(rawDir, { recursive: true });
+  fs.writeFileSync(path.join(rawDir, asset.file), raw);
   const processed = await postProcess(raw, asset);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, processed);

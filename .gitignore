@@ -1,40 +1,15 @@
-# dependencies
+# deps / build output
 node_modules/
-.pnpm-store/
-
-# build outputs
 dist/
-build/
 .next/
-out/
-*.tsbuildinfo
-
-# turbo
 .turbo/
-
-# env
-.env
-.env.local
-.env.*.local
-
-# logs
-*.log
-npm-debug.log*
-pnpm-debug.log*
-
-# os / editor
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/*
-!.vscode/extensions.json
-
-# docker volumes (if bind-mounted locally)
-.docker-data/
-
-# go
-apps/api/bin/
-*.exe
-
-# test coverage
+out/
 coverage/
+apps/api/bin/
+
+# runtime junk
+*.log
+.DS_Store
+
+# asset pipeline raw cache (re-tune post-processing without re-billing BFL)
+.asset-raw/
