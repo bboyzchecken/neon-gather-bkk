@@ -55,6 +55,7 @@ func seedQuests(d *gorm.DB) error {
 		{Code: "daily_sell", Type: models.QuestDaily, Title: "Daily Hustle", Description: "Make 3 vendor sales today", Event: models.EventVendorSell, Target: 3, RewardCoins: 60, SortOrder: 20},
 		{Code: "daily_collect", Type: models.QuestDaily, Title: "Bus the Tables", Description: "Collect 2 tables today", Event: models.EventTableCollect, Target: 2, RewardCoins: 50, SortOrder: 21},
 		{Code: "daily_vending", Type: models.QuestDaily, Title: "Snack Run", Description: "Buy 1 thing from a vending machine", Event: models.EventVendingBuy, Target: 1, RewardCoins: 40, SortOrder: 22},
+		{Code: "daily_cheers", Type: models.QuestDaily, Title: "Clink!", Description: "Cheers with another player", Event: models.EventCheers, Target: 1, RewardCoins: 40, SortOrder: 23},
 		// weekly quest
 		{Code: "weekly_market", Type: models.QuestWeekly, Title: "Trade Week", Description: "Complete 10 marketplace purchases this week", Event: models.EventMarketBuy, Target: 10, RewardCoins: 300, SortOrder: 30},
 		// community quest (server-wide weekly goal)
@@ -103,30 +104,48 @@ func seedVending(d *gorm.DB) error {
 	return nil
 }
 
+// mallLayout is the wall-to-wall shop arrangement (product direction: units
+// line the interior walls like a real mall, adjacent units share boundaries).
+// Top wall: 4 units flanking the entrance (tiles 10-13). Left wall: 2 units.
+var mallLayout = []struct {
+	code   string
+	gx, gy int
+}{
+	{"A-01", 2, 1}, {"A-02", 6, 1}, {"A-03", 14, 1}, {"A-04", 18, 1},
+	{"A-05", 1, 6}, {"A-06", 1, 10},
+}
+
 func seedPlots(d *gorm.DB) error {
 	var count int64
 	d.Model(&models.Plot{}).Count(&count)
-	if count > 0 {
-		return nil
-	}
-	facades := []string{models.FacadeCafe, models.FacadeVintage, models.FacadeStreetfood}
-	i := 0
-	for gy := 0; gy < 2; gy++ {
-		for gx := 0; gx < 3; gx++ {
-			i++
+	if count == 0 {
+		facades := []string{models.FacadeCafe, models.FacadeVintage, models.FacadeStreetfood}
+		for i, slot := range mallLayout {
 			p := models.Plot{
-				Code:           fmt.Sprintf("A-%02d", i),
-				GridX:          2 + gx*6,
-				GridY:          2 + gy*7,
+				Code:           slot.code,
+				GridX:          slot.gx,
+				GridY:          slot.gy,
 				WidthTiles:     4,
 				HeightTiles:    4,
 				Status:         models.PlotVacant,
 				RentPrice:      200,
-				FacadeTemplate: facades[(i-1)%len(facades)],
+				FacadeTemplate: facades[i%len(facades)],
 			}
 			if err := d.Create(&p).Error; err != nil {
 				return err
 			}
+		}
+	}
+	return relayoutPlots(d)
+}
+
+// relayoutPlots moves existing plots onto the current mall layout by code —
+// idempotent, so layout changes reach already-seeded databases.
+func relayoutPlots(d *gorm.DB) error {
+	for _, slot := range mallLayout {
+		if err := d.Model(&models.Plot{}).Where("code = ?", slot.code).
+			Updates(map[string]any{"grid_x": slot.gx, "grid_y": slot.gy}).Error; err != nil {
+			return err
 		}
 	}
 	return nil

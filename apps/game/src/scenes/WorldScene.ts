@@ -30,10 +30,12 @@ interface TableViewObj {
   label: Phaser.GameObjects.Text;
 }
 
-/** Offline preview data (mirrors the seeder) so assets render without the API. */
-const DEMO_PLOTS: Plot[] = [0, 1, 2, 3, 4, 5].map((i) => {
-  const gx = 2 + (i % 3) * 6;
-  const gy = 2 + Math.floor(i / 3) * 7;
+/** Offline preview data (mirrors the seeder's wall-to-wall mall layout). */
+const DEMO_SLOTS: Array<[number, number]> = [
+  [2, 1], [6, 1], [14, 1], [18, 1], // top wall, flanking the entrance
+  [1, 6], [1, 10], // left wall
+];
+const DEMO_PLOTS: Plot[] = DEMO_SLOTS.map(([gx, gy], i) => {
   const templates = ['CAFE', 'VINTAGE', 'STREETFOOD'] as const;
   const rented = i === 1 || i === 4;
   return {
@@ -92,6 +94,9 @@ const BOOTH = { gx: 20, gy: 18, w: 2, h: 2 };
 const WALL_H = 170;
 const ENTRANCE = { start: 10, width: 4 };
 
+/** Display cabinet (Phase 2 §1) — shows your coaster collection. */
+const CABINET = { gx: 22, gy: 15 };
+
 /** AutoServeBot home position (beside the bar counter). */
 const BOT_HOME: Cell = { gx: 14, gy: 17 };
 const BOT_SPEED_TILES = 2.6;
@@ -141,6 +146,9 @@ export class WorldScene extends Phaser.Scene {
   private questPanel?: Phaser.GameObjects.Container;
   private questPanelVisible = true;
   private ambientG?: Phaser.GameObjects.Graphics;
+  private nearCabinet = false;
+  private coasterPanel?: Phaser.GameObjects.Container;
+  private nearPlayerId?: string;
   private blockedTiles = new Set<number>();
   private bot?: Phaser.GameObjects.Container;
   private botPos: Cell = { ...BOT_HOME };
@@ -457,6 +465,19 @@ export class WorldScene extends Phaser.Scene {
 
   private drawDecor(): void {
     this.placeProp('counter_bar', 15.6, 16.2, TILE_W * 2.9);
+    this.placeProp('cabinet', CABINET.gx + 0.5, CABINET.gy + 0.5, TILE_W * 0.9);
+    if (this.tex('cabinet')) {
+      const c = isoPos(CABINET.gx + 0.5, CABINET.gy + 0.5);
+      this.add
+        .text(c.x, c.y + TILE_H * 0.55, '🪙 coasters', {
+          color: '#ffffff',
+          fontSize: '12px',
+          backgroundColor: '#00000099',
+          padding: { x: 4, y: 1 },
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(9000);
+    }
     const plants: Array<[number, number, string]> = [
       [1.4, 1.6, 'plant_monstera'],
       [13.4, 1.8, 'plant_banana'],
@@ -535,7 +556,11 @@ export class WorldScene extends Phaser.Scene {
     this.keys = kb.addKeys('W,A,S,D') as Record<string, Phaser.Input.Keyboard.Key>;
     kb.on('keydown-E', () => void this.onInteract());
     kb.on('keydown-Q', () => this.toggleQuestPanel());
-    kb.on('keydown-ESC', () => this.exitPhotoMode());
+    kb.on('keydown-C', () => void this.onCheers());
+    kb.on('keydown-ESC', () => {
+      this.exitPhotoMode();
+      this.closeCoasterPanel();
+    });
     kb.on('keydown-SPACE', () => void this.onCapturePhoto());
     for (let n = 1; n <= 4; n++) {
       kb.on(`keydown-${'ONE TWO THREE FOUR'.split(' ')[n - 1]}`, () => void this.onDigit(n));
@@ -582,6 +607,8 @@ export class WorldScene extends Phaser.Scene {
       }
     }
 
+    this.drawShopShell(p);
+
     // plot floor: teak when rented, concrete when vacant
     this.blitPlotFloor(p);
 
@@ -614,7 +641,8 @@ export class WorldScene extends Phaser.Scene {
       const cx = (l.x + r.x) / 2;
       const anchorY = b.y - TILE_H * 0.55;
       facade = this.add.image(cx, anchorY, fk).setOrigin(0.5, 1).setDepth(anchorY);
-      const w = TILE_W * 2.7;
+      // fill the 4-tile unit so adjacent shops read continuous
+      const w = TILE_W * 3.4;
       facade.setDisplaySize(w, (w * facade.height) / facade.width);
     }
 
@@ -629,6 +657,46 @@ export class WorldScene extends Phaser.Scene {
       .setDepth(9000);
     zone.on('pointerdown', () => void this.onRentPlot(p.id));
     this.plotViews.push({ plot: p, outline, zone, facade, label });
+  }
+
+  /** Party walls so adjacent units read wall-to-wall like a real mall.
+   * Units against the top wall get side walls running into the hall; units
+   * on the left wall get side walls running right. The storefront stays
+   * open (walls cover the back 2.5 tiles of the unit's depth). */
+  private drawShopShell(p: Plot): void {
+    const H = 120;
+    const seg = (
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      face: number,
+    ): void => {
+      const g = this.add.graphics().setDepth(Math.max(a.y, b.y) - 1);
+      const q = (h0: number, h1: number, color: number): void => {
+        g.fillStyle(color, 1);
+        g.fillPoints(
+          [
+            new Phaser.Geom.Point(a.x, a.y - h1),
+            new Phaser.Geom.Point(b.x, b.y - h1),
+            new Phaser.Geom.Point(b.x, b.y - h0),
+            new Phaser.Geom.Point(a.x, a.y - h0),
+          ],
+          true,
+        );
+      };
+      q(0, H, face);
+      q(0, 10, 0x8a5a2b); // teak base
+      q(H - 6, H, 0x1e3d34); // green trim
+    };
+    const depth = 2.5;
+    if (p.grid_y <= 1) {
+      for (const gx of [p.grid_x, p.grid_x + p.width_tiles]) {
+        seg(isoPos(gx, p.grid_y), isoPos(gx, p.grid_y + depth), 0xf2e6cf);
+      }
+    } else if (p.grid_x <= 1) {
+      for (const gy of [p.grid_y, p.grid_y + p.height_tiles]) {
+        seg(isoPos(p.grid_x, gy), isoPos(p.grid_x + depth, gy), 0xe6d5b8);
+      }
+    }
   }
 
   private blitPlotFloor(p: Plot): void {
@@ -756,9 +824,20 @@ export class WorldScene extends Phaser.Scene {
         this.toast(
           msg.tier === 'OPENING_NIGHT'
             ? `🥇 Opening-night coaster from ${msg.shop_code}!`
-            : `🪙 Coaster collected: ${msg.shop_code}`,
+            : msg.tier === 'REGULAR'
+              ? `⭐ Regular coaster earned at ${msg.shop_code}!`
+              : `🪙 Coaster collected: ${msg.shop_code}`,
           0x2ea36a,
         );
+        break;
+      case 'cheers':
+        this.toast(`🍻 ${msg.from_name} cheers with you! (${msg.total}×)`, 0x2ea36a);
+        break;
+      case 'coaster_sold':
+        this.toast(`🪙 Your coaster sold for ${msg.price}c!`, 0x2ea36a);
+        break;
+      case 'regular_achieved':
+        this.toast(`⭐ You are now a regular at ${msg.shop_code} (${msg.menu_name})!`, 0xc9a227);
         break;
     }
   }
@@ -842,6 +921,14 @@ export class WorldScene extends Phaser.Scene {
   // ---------- actions ----------
   private async onInteract(): Promise<void> {
     if (this.photoMode) return; // SPACE captures, ESC exits
+    if (this.coasterPanel) {
+      this.closeCoasterPanel();
+      return;
+    }
+    if (this.nearCabinet) {
+      await this.openCoasterPanel();
+      return;
+    }
     if (this.nearBooth) {
       this.enterPhotoMode();
       return;
@@ -851,6 +938,88 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
     await this.onInteractTable();
+  }
+
+  // ---------- Phase 2: cheers (server verifies presence) ----------
+  private async onCheers(): Promise<void> {
+    if (this.busy || !this.nearPlayerId || this.photoMode) return;
+    if (this.offline) {
+      this.toast('Offline preview — cheers needs the API', 0xcc8844);
+      return;
+    }
+    this.busy = true;
+    try {
+      const res = await api.cheers(this.nearPlayerId);
+      this.toast(`🍻 Cheers! (${res.total}× together)`, 0x2ea36a);
+    } catch (err) {
+      this.toast((err as Error).message, 0xcc4444);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  // ---------- Phase 2: display cabinet (coaster gallery) ----------
+  private closeCoasterPanel(): void {
+    this.coasterPanel?.destroy();
+    this.coasterPanel = undefined;
+  }
+
+  private async openCoasterPanel(): Promise<void> {
+    this.closeCoasterPanel();
+    let coasters: Awaited<ReturnType<typeof api.myCoasters>> = [];
+    if (!this.offline) {
+      coasters = await api.myCoasters().catch(() => []);
+    }
+    const w = 340;
+    const cols = 4;
+    const cell = 72;
+    const rows = Math.max(1, Math.ceil(coasters.length / cols));
+    const h = 64 + rows * (cell + 18);
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.18);
+    g.fillRoundedRect(4, 6, w, h, 14);
+    g.fillStyle(0xf5ead7, 0.97);
+    g.lineStyle(3, 0x1e3d34, 1);
+    g.fillRoundedRect(0, 0, w, h, 14);
+    g.strokeRoundedRect(0, 0, w, h, 14);
+    const parts: Phaser.GameObjects.GameObject[] = [g];
+    parts.push(
+      this.add.text(14, 10, `Coaster collection (${coasters.length}) · [E] close`, {
+        color: '#1e3d34',
+        fontSize: '14px',
+        fontStyle: 'bold',
+      }),
+    );
+    if (coasters.length === 0) {
+      parts.push(
+        this.add.text(14, 40, this.offline ? 'offline preview' : 'order at a shop table to collect its coaster', {
+          color: '#8a5a2b',
+          fontSize: '12px',
+        }),
+      );
+    }
+    coasters.slice(0, 12).forEach((c, i) => {
+      const x = 22 + (i % cols) * (cell + 12);
+      const y = 42 + Math.floor(i / cols) * (cell + 18);
+      const key = c.tier === 'OPENING_NIGHT' ? 'coaster_opening' : 'coaster_blank';
+      if (this.tex(key)) {
+        const img = this.add.image(x + cell / 2, y + cell / 2, key);
+        img.setDisplaySize(cell, cell);
+        parts.push(img);
+      }
+      parts.push(
+        this.add
+          .text(x + cell / 2, y + cell + 2, `${c.shop_code ?? '?'}${c.tier === 'OPENING_NIGHT' ? ' 🥇' : ''}`, {
+            color: '#41372a',
+            fontSize: '10px',
+          })
+          .setOrigin(0.5, 0),
+      );
+    });
+    this.coasterPanel = this.add
+      .container(this.scale.width / 2 - w / 2, this.scale.height / 2 - h / 2, parts)
+      .setScrollFactor(0)
+      .setDepth(10001);
   }
 
   private async onInteractTable(): Promise<void> {
@@ -1345,9 +1514,27 @@ export class WorldScene extends Phaser.Scene {
     this.nearBooth = Math.hypot(this.pos.gx - bc.x, this.pos.gy - bc.y) < 2.2;
     if (!this.nearBooth && this.photoMode) this.exitPhotoMode();
 
+    const wasNearCabinet = this.nearCabinet;
+    this.nearCabinet =
+      Math.hypot(this.pos.gx - (CABINET.gx + 0.5), this.pos.gy - (CABINET.gy + 0.5)) < 1.8;
+    if (wasNearCabinet && !this.nearCabinet) this.closeCoasterPanel();
+
+    // nearest other player within cheers range (server re-verifies)
+    this.nearPlayerId = undefined;
+    let bestD = 2.2;
+    this.others.forEach((o, id) => {
+      const d = Math.hypot(this.pos.gx - o.gx, this.pos.gy - o.gy);
+      if (d < bestD) {
+        bestD = d;
+        this.nearPlayerId = id;
+      }
+    });
+
     let h = '';
     if (this.photoMode) {
       h = '📸 1-3 backdrop · SPACE shoot · ESC exit';
+    } else if (this.nearCabinet) {
+      h = this.coasterPanel ? '[E] close collection' : '[E] Coaster collection';
     } else if (near) {
       const t = this.tableViews.get(near)!.table;
       h =
@@ -1360,6 +1547,11 @@ export class WorldScene extends Phaser.Scene {
       h = this.vendingPanel ? '[1-4] buy · [E] close' : '[E] Vending machine';
     } else if (this.nearBooth) {
       h = '[E] Photo booth';
+    }
+    if (this.nearPlayerId && !this.photoMode) {
+      const o = this.others.get(this.nearPlayerId);
+      const name = o ? (o.c.list[1] as Phaser.GameObjects.Text).text : 'player';
+      h = h ? `${h}  ·  [C] Cheers with ${name}` : `[C] Cheers with ${name} 🍻`;
     }
     this.hint.setText(h);
   }
