@@ -227,6 +227,12 @@ const ASSETS = [
   A('ui_quest_card_01.png', 'ui', 'a quest tracker UI card on a neutral background: a warm cream rounded card with a small icon slot on the left, three empty text placeholder bars, a checkbox column on the right, and a thin progress bar at the bottom. Soft shadow, dark forest-green outline. No readable text, use plain grey placeholder bars instead of letters.', { tech: 'Flat front-facing view, crisp and readable at small size.' }),
   // avatar concept lineup for real-artist handoff (library E1 — concept only, not production)
   A('char_avatar_concept_01.png', 'concepts', 'a character lineup on a plain neutral background: five young adult characters standing in a row — two women, two men, and one androgynous person — full body, front view, casual Southeast Asian streetwear: oversized shirts, skirts, tote bags, sneakers, caps. Clearly different body shapes (one plus-size, one tall and lanky, one petite), different skin tones from light to deep, and varied hairstyles including long hair, a bob cut, and curly hair. Simple readable silhouettes, relaxed friendly poses. Slightly stylized proportions, head slightly larger than realistic.', { aspect: '16:9', tech: 'Full-body character concept lineup, front view, evenly spaced, plain neutral background.' }),
+  // ---- Phase 2 additions ----
+  // display cabinet (library B6) — coaster showcase furniture
+  A('prop_cabinet_01.png', 'world', 'a glass display cabinet with a dark forest-green steel frame and teak base, three empty glass shelves, warm interior lighting, standing upright against nothing.', { alpha: true }),
+  // coasters (library D1/D2) — 256×256 collectibles, also served by the web app
+  A('coaster_blank_01.png', 'coasters', 'a blank circular drink coaster viewed perfectly flat from directly above, plain warm cream surface with a thin dark border ring, subtle pressed paper texture, no design in the center.', { alpha: true, size: 256, copyToWeb: true, tech: 'Perfectly flat top-down view of a single round coaster, centered, on a solid pure white background, no other objects, no shadow.' }),
+  A('coaster_opening_01.png', 'coasters', 'a circular drink coaster viewed perfectly flat from directly above: deep forest-green background with an ornate gold foil border ring and a small abstract geometric emblem in the center, premium embossed finish, subtle metallic sheen.', { alpha: true, size: 256, copyToWeb: true, tech: 'Perfectly flat top-down view of a single round coaster, centered, on a solid pure white background, no other objects, no shadow.' }),
   // F. UI reference sheets (stored for later wiring)
   A('ui_kit_main_01.png', 'ui', 'a cozy casual game UI kit laid out on a neutral background: a large rounded rectangle panel, a primary button, a secondary button, a row of small circular icon buttons, a horizontal progress bar, a small currency chip, a 4x4 inventory slot grid, and a tab bar with three tabs. Warm cream panels, dark forest-green outlines, terracotta accent colour, soft drop shadows, generous rounded corners.', { aspect: '16:9', tech: 'Flat front-facing view, crisp and readable at small size.' }),
   A('ui_frame_rarity_01.png', 'ui', 'a set of four empty square item slot frames in a row, identical shape but different colours indicating rarity tiers: plain grey, teal, purple, and warm gold with a subtle glow. Rounded corners, clean outline, soft inner shadow, on a neutral dark background.', { aspect: '16:9', tech: 'Flat front-facing view, crisp and readable at small size.' }),
@@ -275,8 +281,9 @@ async function genAsset(asset, refB64) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, processed);
   if (asset.copyToWeb) {
-    fs.mkdirSync(WEB_ICONS, { recursive: true });
-    fs.writeFileSync(path.join(WEB_ICONS, asset.file), processed);
+    const webDir = path.join(ROOT, 'apps', 'web', 'public', 'assets', asset.dir);
+    fs.mkdirSync(webDir, { recursive: true });
+    fs.writeFileSync(path.join(webDir, asset.file), processed);
   }
   log(`| ${asset.file} | flux-kontext-pro | ${task.id} | ${new Date().toISOString()} |`);
   return target;
