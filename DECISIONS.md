@@ -37,11 +37,18 @@ browsers can't set headers on WS upgrades.
 Per the template convention. The Go structs carry snake_case json tags; `@neon/shared-types`
 mirrors those exact shapes so web + game stay in sync with one source of truth.
 
-### D0.6 Top-down rendering for Phase 0 (iso-ready)
-Phaser world renders **top-down** on a square grid — far simpler than isometric depth
-sorting for an MVP. The locked Art & Grid constants (tile 128×64, plot 4×4=512×256,
-avatar ~110px) live in `shared-types` and are honoured, so isometric art can drop in
-later without changing gameplay/coordinate logic.
+### D0.6 Isometric 2:1 rendering (revised — was briefly top-down)
+The first pass rendered top-down for simplicity, but with iso-styled assets on a flat
+grid the scene read as "flat 2D", contradicting the approved reference art. Reworked to
+true **isometric 2:1 projection** per the locked Art & Grid Standards (tile 128×64):
+- `isoPos(gx,gy)` grid→screen mapping in `apps/game/src/config.ts`; world logic stays
+  in grid coordinates (floats), including WebSocket position sync.
+- Flat floor textures are turned into 128×64 diamond tiles at runtime (RenderTexture:
+  rotate 45° then squash Y ×0.5) and blitted into one static ground RenderTexture.
+- Depth sorting by screen Y for facades/props/avatars; plots use polygon (diamond)
+  hit areas; WASD stays screen-aligned via screen→grid direction conversion.
+- Game loop uses `forceSetTimeOut` + auto-wake on document-hidden so the multiplayer
+  world keeps stepping in background tabs (RAF freezes on hidden tabs).
 
 ### D0.7 Money safety: append-only ledger + row locks + atomic claims
 All coin movement goes through `WalletStore.ApplyDelta`, which reads the balance
@@ -77,6 +84,19 @@ iron rules.
 pnpm + Turborepo for web/game/shared-types. `shared-types` builds to CJS `dist` and is
 consumed by both apps (Next `transpilePackages`, Vite native). The Go API is outside the
 JS workspace and is driven by `pnpm api:*` scripts / Docker.
+
+### D0.12b Asset pipeline: BFL FLUX Kontext + white→alpha post-process
+Phase 0 art is generated via the BFL API (`scripts/gen-assets.mjs`): FLUX Kontext Pro
+with `_STYLE_REF_day.png` as the style reference for every asset (per the library's
+"always attach the style ref" rule), prompts composed from the locked Style DNA +
+per-type tech specs. Because image models can't output true alpha, world sprites are
+generated on pure white and post-processed in `sharp` (border flood-fill → alpha +
+bounding-box crop). Floors are opaque seamless tiles; icons are downscaled to 512px
+per the spec. The game renders these iso sprites on the Phase 0 top-down grid (works
+visually; full iso projection comes later). The game also gained an **offline preview
+mode** (demo plots/tables, no sockets) so art can be checked without infra running.
+Renderer switched to `Phaser.CANVAS` — reliable canvas snapshots (needed for the
+Phase 1 photo booth) at this scale.
 
 ### D0.12 Env loading
 Single root `.env` (committed dev defaults). The Go API loads `./.env` then `../../.env`

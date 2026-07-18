@@ -152,6 +152,23 @@ pnpm infra:up/down  # docker infra
 pnpm stack:up/down  # full docker stack (profile: apps)
 ```
 
+## Art assets
+
+Phase 0 ships with a generated "Bangkok Urban Cozy" asset set (28 images) living in
+`apps/game/public/assets/` (+ icon copies in `apps/web/public/assets/icons/`):
+facades, tables, bar counter, tropical plants, floor textures, item icons, UI sheets.
+
+- Style is anchored by `_STYLE_REF_day.png` / `_STYLE_REF_night.png` (approved concepts).
+- Regenerate with `node scripts/gen-assets.mjs` (needs `BFL_API_KEY` in `.env`;
+  `--force` re-gens all, `--only <name>` targets one). Prompts + request ids are
+  logged to `ASSET_PROMPTS_LOG.md`.
+- Every file follows the locked naming convention, so hand-made art can replace any
+  image drop-in without code changes.
+
+**Offline preview:** if the API isn't running, the game boots into a demo world
+(seed-like plots/tables, no networking) so you can always check art in-game with
+just `pnpm --filter @neon/game dev`.
+
 ## Tests
 
 - Go business logic: `cd apps/api && go test ./...` (wallet money math: no overdraw, zero-sum trades).

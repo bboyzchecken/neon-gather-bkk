@@ -5,3 +5,4 @@ packages:
 # pnpm 11 safety gate: allow esbuild (used by Vite) to run its install script.
 allowBuilds:
   esbuild: true
+  sharp: true

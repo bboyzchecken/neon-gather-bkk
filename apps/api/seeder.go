@@ -97,16 +97,25 @@ func seedMarketBot(d *gorm.DB, wallet models.WalletStore) error {
 		name  string
 		cat   string
 		price int
+		thumb string
 	}{
-		{"Iced Thai Tea", models.CategoryDrink, 25},
-		{"Cold Brew Coffee", models.CategoryDrink, 35},
-		{"Pad Thai Plate", models.CategoryFood, 45},
-		{"Monstera in Pot", models.CategoryDecor, 120},
-		{"Teak Bar Stool", models.CategoryDecor, 180},
-		{"Woven Basket", models.CategoryMaterial, 60},
+		{"Iced Thai Tea", models.CategoryDrink, 25, "/assets/icons/icon_drink_thai_tea.png"},
+		{"Cold Brew Coffee", models.CategoryDrink, 35, "/assets/icons/icon_drink_coffee_iced.png"},
+		{"Signature Cocktail", models.CategoryDrink, 55, "/assets/icons/icon_drink_cocktail.png"},
+		{"Draft Beer", models.CategoryDrink, 40, "/assets/icons/icon_drink_beer.png"},
+		{"Mango Smoothie", models.CategoryDrink, 45, "/assets/icons/icon_drink_smoothie.png"},
+		{"Teal Teapot Set", models.CategoryDrink, 65, "/assets/icons/icon_drink_teapot.png"},
+		{"Pad Thai Plate", models.CategoryFood, 45, "/assets/icons/icon_food_noodles_padthai.png"},
+		{"Fried Rice Special", models.CategoryFood, 40, "/assets/icons/icon_food_fried_rice.png"},
+		{"Grilled Skewers", models.CategoryFood, 35, "/assets/icons/icon_food_skewers.png"},
+		{"Slice of Cake", models.CategoryFood, 30, "/assets/icons/icon_food_cake.png"},
+		{"Monstera in Pot", models.CategoryDecor, 120, "/assets/icons/icon_decor_plant_monstera.png"},
+		{"Teak Bar Stool", models.CategoryDecor, 180, "/assets/icons/icon_decor_stool_bar.png"},
+		{"Woven Basket", models.CategoryMaterial, 60, "/assets/icons/icon_material_basket_woven.png"},
 	}
 	for _, li := range listings {
-		it := models.Item{Name: li.name, Category: li.cat, Price: li.price, OwnerID: bot.ID, ListedForSale: true}
+		thumb := li.thumb
+		it := models.Item{Name: li.name, Category: li.cat, Price: li.price, OwnerID: bot.ID, ListedForSale: true, ThumbnailURL: &thumb}
 		if err := d.Create(&it).Error; err != nil {
 			return err
 		}

@@ -89,6 +89,13 @@ export default function Dashboard() {
         <div className="grid">
           {inv.map((it) => (
             <div className="item" key={it.id}>
+              {it.thumbnail_url && (
+                <img
+                  src={it.thumbnail_url}
+                  alt={it.name}
+                  style={{ width: '100%', height: 96, objectFit: 'contain', marginBottom: 8 }}
+                />
+              )}
               <div className="spread">
                 <b>{it.name}</b>
                 {it.rarity && <span className={`pill ${it.rarity}`}>{it.rarity}</span>}
@@ -132,6 +139,13 @@ export default function Dashboard() {
         <div className="grid">
           {market.map((it) => (
             <div className="item" key={it.id}>
+              {it.thumbnail_url && (
+                <img
+                  src={it.thumbnail_url}
+                  alt={it.name}
+                  style={{ width: '100%', height: 96, objectFit: 'contain', marginBottom: 8 }}
+                />
+              )}
               <div className="spread">
                 <b>{it.name}</b>
                 {it.rarity && <span className={`pill ${it.rarity}`}>{it.rarity}</span>}
