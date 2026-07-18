@@ -30,6 +30,14 @@ export type FacadeTemplate = 'CAFE' | 'VINTAGE' | 'STREETFOOD';
 export type TableState = 'EMPTY' | 'ORDERED' | 'SERVED' | 'COLLECTED';
 export type ModerationStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
 
+/* Phase 1 */
+export type JobType = 'VENDOR' | 'MERCHANT' | 'CRAFTER' | 'HOST' | 'EXPLORER';
+export type QuestType = 'MAIN' | 'JOB' | 'DAILY' | 'WEEKLY' | 'COMMUNITY';
+export type QuestStatus = 'ACTIVE' | 'COMPLETED' | 'CLAIMED';
+export type PostingStatus = 'OPEN' | 'CLOSED';
+export type EmploymentStatus = 'APPLIED' | 'ACTIVE' | 'ENDED';
+export type PhotoType = 'BOOTH' | 'HEART_SPECIAL';
+
 export const ITEM_CATEGORIES: ItemCategory[] = ['DRINK', 'FOOD', 'DECOR', 'MATERIAL', 'MISC'];
 
 /* ============================================================
@@ -102,6 +110,118 @@ export interface VendorSellResult {
 }
 
 /* ============================================================
+ * Phase 1 DTOs
+ * ============================================================ */
+export interface Perk {
+  code: string;
+  branch: string;
+  name: string;
+  description: string;
+  unlock_level: number;
+  effect: string;
+  value: number;
+}
+
+export interface PlayerJob {
+  job_type: JobType;
+  xp: number;
+  level: number;
+  xp_for_next: number;
+  unlocked_perks: Perk[];
+}
+
+export interface QuestView {
+  id: string;
+  code: string;
+  type: QuestType;
+  title: string;
+  description: string;
+  job_type: JobType | null;
+  event: string;
+  target: number;
+  reward_coins: number;
+  reward_job_xp: number;
+  period_key: string;
+  progress: number;
+  status: QuestStatus;
+  community_progress?: number;
+}
+
+export interface JobPostingView {
+  id: string;
+  plot_id: string;
+  plot_code: string | null;
+  owner_id: string;
+  owner_name: string | null;
+  title: string;
+  description: string;
+  wage_per_task: number;
+  status: PostingStatus;
+  created_at: string;
+}
+
+export interface EmploymentView {
+  id: string;
+  posting_id: string;
+  plot_id: string;
+  staff_id: string;
+  staff_name: string | null;
+  status: EmploymentStatus;
+  applied_at: string;
+  hired_at: string | null;
+}
+
+export interface StaffReviewView {
+  id: string;
+  employment_id: string;
+  rater_id: string;
+  staff_id: string;
+  stars: number;
+  comment: string;
+  created_at: string;
+}
+
+export interface VendingSlotView {
+  id: string;
+  item_name: string;
+  category: ItemCategory;
+  thumbnail_url: string | null;
+  price: number;
+  stock: number;
+}
+
+export interface VendingMachineView {
+  id: string;
+  code: string;
+  plot_id: string | null;
+  owner_id: string;
+  owner_name: string | null;
+  grid_x: number;
+  grid_y: number;
+  slots: VendingSlotView[];
+}
+
+export interface PhotoView {
+  id: string;
+  url: string;
+  photo_type: PhotoType;
+  background: string;
+  caption: string;
+  share_token: string;
+  moderation: ModerationStatus;
+  created_at: string;
+}
+
+export interface SharedPhotoView {
+  url: string;
+  caption: string;
+  background: string;
+  photo_type: PhotoType;
+  owner_name: string;
+  created_at: string;
+}
+
+/* ============================================================
  * Realtime (native WebSocket JSON protocol) — GET /ws?token=...
  * ============================================================ */
 export type Direction = 'up' | 'down' | 'left' | 'right';
@@ -128,7 +248,17 @@ export type ServerMessage =
   | { type: 'player_joined'; player: PlayerState }
   | { type: 'player_left'; id: string }
   | { type: 'player_moved'; player: PlayerState }
-  | { type: 'table_updated'; table: TableView };
+  | { type: 'table_updated'; table: TableView }
+  // Phase 1
+  | { type: 'job_level_up'; job_type: JobType; level: number }
+  | { type: 'quest_completed'; quest_id: string; code: string; title: string }
+  | { type: 'order_alert'; table_id: string; table_code: string; plot_id: string; order_name: string }
+  | { type: 'staff_applied'; posting_id: string; employment_id: string }
+  | { type: 'staff_hired'; employment_id: string; plot_id: string }
+  | { type: 'tip_received'; amount: number; employment_id: string }
+  | { type: 'wage_paid'; amount: number; table_code: string }
+  | { type: 'vending_updated'; machine_id: string; slot_id: string; stock: number }
+  | { type: 'vending_low_stock'; machine_id: string; slot_id: string; item_name: string; stock: number };
 
 /* ============================================================
  * Cross-window handshake (web shell -> embedded game iframe)
