@@ -18,12 +18,18 @@ import (
 	"neongather/pkg/services/autoserve"
 	"neongather/pkg/services/leaderboard"
 	"neongather/pkg/services/moderation"
+	"neongather/pkg/services/progress"
 	"neongather/pkg/services/storage"
 	itemstore "neongather/pkg/store/item"
+	jobstore "neongather/pkg/store/job"
+	photostore "neongather/pkg/store/photo"
 	plotstore "neongather/pkg/store/plot"
+	queststore "neongather/pkg/store/quest"
+	staffstore "neongather/pkg/store/staff"
 	tablestore "neongather/pkg/store/table"
 	tokenstore "neongather/pkg/store/token"
 	userstore "neongather/pkg/store/user"
+	vendingstore "neongather/pkg/store/vending"
 	walletstore "neongather/pkg/store/wallet"
 	"neongather/pkg/ws"
 )
@@ -132,9 +138,15 @@ func runServer(cfg core.Config) {
 			plotstore.New,
 			itemstore.New,
 			tablestore.New,
+			jobstore.New,
+			queststore.New,
+			staffstore.New,
+			vendingstore.New,
+			photostore.New,
 			storage.New,
 			moderation.New,
 			leaderboard.New,
+			progress.New,
 			autoserve.New,
 			handlers.NewServer,
 		),

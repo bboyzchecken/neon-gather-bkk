@@ -58,6 +58,8 @@ func (s *Server) RentPlot(c echo.Context) error {
 		}
 	}
 
+	s.Progress.Fire(uid, models.EventPlotRent)
+
 	var full models.Plot
 	_ = s.DB.Preload("Owner").First(&full, "id = ?", id).Error
 	return c.JSON(http.StatusOK, toPlotDTO(full, uid))

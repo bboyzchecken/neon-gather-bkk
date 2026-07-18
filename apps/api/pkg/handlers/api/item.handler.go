@@ -7,6 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 
+	"neongather/pkg/domain/progression"
 	"neongather/pkg/models"
 )
 
@@ -45,6 +46,7 @@ func (s *Server) CreateItem(c echo.Context) error {
 	if err := s.Items.Create(it); err != nil {
 		return errJSON(c, http.StatusInternalServerError, "could not create item")
 	}
+	s.Progress.Fire(uid, models.EventItemCreate)
 	dto := toItemDTO(*it)
 	if u, err := s.Users.FindByID(uid); err == nil {
 		dto.OwnerName = &u.DisplayName
@@ -64,6 +66,13 @@ func (s *Server) VendorSell(c echo.Context) error {
 		return errJSON(c, http.StatusForbidden, "you do not own this item")
 	}
 
+	// VENDOR perk: "Barista" branch mints a % bonus on vendor sales.
+	payout := it.Price
+	if row, err := s.Jobs.Find(uid, models.JobVendor); err == nil {
+		bp := progression.EffectValue(models.JobVendor, row.Level, "vendor_sale_bonus_bp")
+		payout = progression.ApplyBonusBP(payout, bp)
+	}
+
 	var earned, balance int
 	err = s.DB.Transaction(func(tx *gorm.DB) error {
 		n, e := s.Items.DeleteOwned(tx, id, uid)
@@ -73,11 +82,11 @@ func (s *Server) VendorSell(c echo.Context) error {
 		if n == 0 {
 			return errItemUnavailable
 		}
-		b, e := s.Wallet.ApplyDelta(tx, uid, it.Price, models.LedgerVendorSell, id, "vendor sell "+it.Name)
+		b, e := s.Wallet.ApplyDelta(tx, uid, payout, models.LedgerVendorSell, id, "vendor sell "+it.Name)
 		if e != nil {
 			return e
 		}
-		earned, balance = it.Price, b
+		earned, balance = payout, b
 		return nil
 	})
 	if err != nil {
@@ -87,5 +96,6 @@ func (s *Server) VendorSell(c echo.Context) error {
 		return errJSON(c, http.StatusInternalServerError, "sell failed")
 	}
 	_ = s.Leaderboard.AddEarnings(c.Request().Context(), uid, earned)
+	s.Progress.Fire(uid, models.EventVendorSell)
 	return c.JSON(http.StatusOK, map[string]int{"earned": earned, "balance": balance})
 }

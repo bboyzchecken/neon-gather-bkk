@@ -16,6 +16,7 @@ import (
 	"neongather/pkg/services/autoserve"
 	"neongather/pkg/services/leaderboard"
 	"neongather/pkg/services/moderation"
+	"neongather/pkg/services/progress"
 	"neongather/pkg/services/storage"
 	"neongather/pkg/utils/validatorutil"
 	"neongather/pkg/ws"
@@ -31,9 +32,15 @@ type Server struct {
 	Plots       models.PlotStore
 	Items       models.ItemStore
 	Tables      models.TableStore
+	Jobs        models.JobStore
+	Quests      models.QuestStore
+	Staff       models.StaffStore
+	Vending     models.VendingStore
+	Photos      models.PhotoStore
 	Storage     *storage.Service
 	Moderation  *moderation.Service
 	Leaderboard *leaderboard.Service
+	Progress    *progress.Service
 	Hub         *ws.Hub
 
 	e *echo.Echo
@@ -52,9 +59,15 @@ type ServerParams struct {
 	Plots       models.PlotStore
 	Items       models.ItemStore
 	Tables      models.TableStore
+	Jobs        models.JobStore
+	Quests      models.QuestStore
+	Staff       models.StaffStore
+	Vending     models.VendingStore
+	Photos      models.PhotoStore
 	Storage     *storage.Service
 	Moderation  *moderation.Service
 	Leaderboard *leaderboard.Service
+	Progress    *progress.Service
 	Hub         *ws.Hub
 	Bot         *autoserve.Bot // constructed so its lifecycle ticker starts
 }
@@ -64,7 +77,10 @@ func NewServer(lc fx.Lifecycle, p ServerParams) *Server {
 		Config: p.Config, DB: p.DB, Redis: p.Redis,
 		Users: p.Users, Tokens: p.Tokens, Wallet: p.Wallet,
 		Plots: p.Plots, Items: p.Items, Tables: p.Tables,
-		Storage: p.Storage, Moderation: p.Moderation, Leaderboard: p.Leaderboard, Hub: p.Hub,
+		Jobs: p.Jobs, Quests: p.Quests, Staff: p.Staff,
+		Vending: p.Vending, Photos: p.Photos,
+		Storage: p.Storage, Moderation: p.Moderation, Leaderboard: p.Leaderboard,
+		Progress: p.Progress, Hub: p.Hub,
 	}
 	s.e = s.buildEcho()
 
@@ -138,6 +154,37 @@ func (s *Server) buildEcho() *echo.Echo {
 	p.POST("/tables/:id/collect", s.CollectTable)
 
 	p.GET("/leaderboard/earnings", s.EarningsLeaderboard)
+
+	// Phase 1 — jobs & quests
+	p.GET("/jobs/mine", s.MyJobs)
+	p.GET("/jobs/tree", s.JobTree)
+	p.GET("/quests", s.ListQuests)
+	p.POST("/quests/:id/claim", s.ClaimQuest)
+
+	// Phase 1 — job board (player staff; tips/reviews only, iron rule)
+	p.GET("/staff/postings", s.ListPostings)
+	p.POST("/staff/postings", s.CreatePosting)
+	p.POST("/staff/postings/:id/close", s.ClosePosting)
+	p.POST("/staff/postings/:id/apply", s.ApplyToPosting)
+	p.GET("/staff/postings/:id/applications", s.ListApplications)
+	p.GET("/staff/employments/mine", s.MyEmployments)
+	p.POST("/staff/employments/:id/hire", s.HireStaff)
+	p.POST("/staff/employments/:id/end", s.EndEmployment)
+	p.POST("/staff/employments/:id/tip", s.TipStaff)
+	p.POST("/staff/employments/:id/review", s.ReviewStaff)
+	p.GET("/staff/:staff_id/reviews", s.StaffReviews)
+
+	// Phase 1 — vending machines
+	p.GET("/vending", s.ListVending)
+	p.POST("/vending/slots/:slot_id/buy", s.BuyVending)
+	p.POST("/vending/slots/:slot_id/restock", s.RestockVending)
+
+	// Phase 1 — photo booth
+	p.POST("/photos", s.UploadPhoto)
+	p.GET("/photos/mine", s.MyPhotos)
+	p.DELETE("/photos/:id", s.DeletePhoto)
+	// public share endpoint (unguessable token, no auth)
+	e.GET("/share/photos/:token", s.SharedPhoto)
 
 	// WebSocket (auth via ?token= — browsers can't set headers on the handshake)
 	e.GET("/ws", s.HandleWS)

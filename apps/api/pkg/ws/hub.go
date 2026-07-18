@@ -86,6 +86,27 @@ func (h *Hub) BroadcastTable(tv TableView) {
 	h.Broadcast(mustJSON(map[string]any{"type": "table_updated", "table": tv}))
 }
 
+// BroadcastJSON marshals and broadcasts an arbitrary message to everyone.
+func (h *Hub) BroadcastJSON(v any) {
+	h.Broadcast(mustJSON(v))
+}
+
+// SendTo pushes a message to every connection of one player (no-op when the
+// player is offline; async flows must tolerate that).
+func (h *Hub) SendTo(playerID string, v any) {
+	msg := mustJSON(v)
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.clients {
+		if c.PlayerID == playerID {
+			select {
+			case c.send <- msg:
+			default:
+			}
+		}
+	}
+}
+
 func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b

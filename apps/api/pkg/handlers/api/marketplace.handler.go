@@ -132,5 +132,7 @@ func (s *Server) Buy(c echo.Context) error {
 		}
 	}
 	_ = s.Leaderboard.AddEarnings(c.Request().Context(), sellerID, price)
+	s.Progress.Fire(buyerID, models.EventMarketBuy)
+	s.Progress.Fire(sellerID, models.EventMarketSell)
 	return c.JSON(http.StatusOK, result)
 }

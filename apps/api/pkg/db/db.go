@@ -52,6 +52,37 @@ func Migrate(d *gorm.DB) error {
 				)
 			},
 		},
+		{
+			ID: "20260718_phase1_community",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(
+					&models.PlayerJob{},
+					&models.Quest{},
+					&models.PlayerQuest{},
+					&models.CommunityProgress{},
+					&models.JobPosting{},
+					&models.Employment{},
+					&models.StaffReview{},
+					&models.VendingMachine{},
+					&models.VendingSlot{},
+					&models.Photo{},
+				)
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable(
+					"photos",
+					"vending_slots",
+					"vending_machines",
+					"staff_reviews",
+					"employments",
+					"job_postings",
+					"community_progresses",
+					"player_quests",
+					"quests",
+					"player_jobs",
+				)
+			},
+		},
 	})
 	return m.Migrate()
 }

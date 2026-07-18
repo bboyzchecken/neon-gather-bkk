@@ -27,6 +27,79 @@ func Seed(d *gorm.DB, cfg core.Config) error {
 	if err := seedDemoPlayer(d, wallet, cfg); err != nil {
 		return err
 	}
+	if err := seedQuests(d); err != nil {
+		return err
+	}
+	if err := seedVending(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// seedQuests inserts the Phase 1 quest content (idempotent on quest code).
+func seedQuests(d *gorm.DB) error {
+	str := func(s string) *string { return &s }
+	quests := []models.Quest{
+		// main quests (one-shot onboarding arc)
+		{Code: "main_first_shop", Type: models.QuestMain, Title: "Open Your First Shop", Description: "Rent a plot on the avenue", Event: models.EventPlotRent, Target: 1, RewardCoins: 150, SortOrder: 1},
+		{Code: "main_first_item", Type: models.QuestMain, Title: "Stock the Shelves", Description: "Create 3 items to sell", Event: models.EventItemCreate, Target: 3, RewardCoins: 100, SortOrder: 2},
+		{Code: "main_first_sale", Type: models.QuestMain, Title: "First Customer", Description: "Sell an item to the vendor counter", Event: models.EventVendorSell, Target: 1, RewardCoins: 100, SortOrder: 3},
+		{Code: "main_first_photo", Type: models.QuestMain, Title: "Say Cheese", Description: "Take a photo in the photo booth", Event: models.EventPhotoTaken, Target: 1, RewardCoins: 80, SortOrder: 4},
+		// job quests (repeatable growth per job, non-periodic)
+		{Code: "job_vendor_sales", Type: models.QuestJob, JobType: str(models.JobVendor), Title: "Counter Rhythm", Description: "Complete 10 vendor sales", Event: models.EventVendorSell, Target: 10, RewardCoins: 200, RewardJobXP: 120, SortOrder: 10},
+		{Code: "job_merchant_trades", Type: models.QuestJob, JobType: str(models.JobMerchant), Title: "Deal Maker", Description: "Sell 5 items on the marketplace", Event: models.EventMarketSell, Target: 5, RewardCoins: 200, RewardJobXP: 120, SortOrder: 11},
+		{Code: "job_crafter_items", Type: models.QuestJob, JobType: str(models.JobCrafter), Title: "Workshop Week", Description: "Create 15 items", Event: models.EventItemCreate, Target: 15, RewardCoins: 200, RewardJobXP: 120, SortOrder: 12},
+		{Code: "job_host_tables", Type: models.QuestJob, JobType: str(models.JobHost), Title: "Floor Shift", Description: "Collect 10 tables", Event: models.EventTableCollect, Target: 10, RewardCoins: 200, RewardJobXP: 120, SortOrder: 13},
+		{Code: "job_explorer_photos", Type: models.QuestJob, JobType: str(models.JobExplorer), Title: "Avenue Album", Description: "Take 5 photos", Event: models.EventPhotoTaken, Target: 5, RewardCoins: 200, RewardJobXP: 120, SortOrder: 14},
+		// daily quests
+		{Code: "daily_sell", Type: models.QuestDaily, Title: "Daily Hustle", Description: "Make 3 vendor sales today", Event: models.EventVendorSell, Target: 3, RewardCoins: 60, SortOrder: 20},
+		{Code: "daily_collect", Type: models.QuestDaily, Title: "Bus the Tables", Description: "Collect 2 tables today", Event: models.EventTableCollect, Target: 2, RewardCoins: 50, SortOrder: 21},
+		{Code: "daily_vending", Type: models.QuestDaily, Title: "Snack Run", Description: "Buy 1 thing from a vending machine", Event: models.EventVendingBuy, Target: 1, RewardCoins: 40, SortOrder: 22},
+		// weekly quest
+		{Code: "weekly_market", Type: models.QuestWeekly, Title: "Trade Week", Description: "Complete 10 marketplace purchases this week", Event: models.EventMarketBuy, Target: 10, RewardCoins: 300, SortOrder: 30},
+		// community quest (server-wide weekly goal)
+		{Code: "community_orders", Type: models.QuestCommunity, Title: "Avenue Rush", Description: "The whole avenue serves 100 table orders this week", Event: models.EventTableOrder, Target: 100, RewardCoins: 250, SortOrder: 40},
+	}
+	for _, q := range quests {
+		var existing models.Quest
+		if err := d.First(&existing, "code = ?", q.Code).Error; err == nil {
+			continue
+		}
+		if err := d.Create(&q).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedVending places one machine near the tables, owned by the market bot.
+func seedVending(d *gorm.DB) error {
+	var count int64
+	d.Model(&models.VendingMachine{}).Count(&count)
+	if count > 0 {
+		return nil
+	}
+	var bot models.User
+	if err := d.First(&bot, "email = ?", "market@neon.gg").Error; err != nil {
+		return err
+	}
+	// grid (18,16): near the tables row, clear of the bar counter at ~(15.6,16.2)
+	m := models.VendingMachine{Code: "V-01", OwnerID: bot.ID, GridX: 18, GridY: 16}
+	if err := d.Create(&m).Error; err != nil {
+		return err
+	}
+	str := func(s string) *string { return &s }
+	slots := []models.VendingSlot{
+		{MachineID: m.ID, ItemName: "Iced Thai Tea", Category: models.CategoryDrink, Price: 30, Stock: 10, ThumbnailURL: str("/assets/icons/icon_drink_thai_tea.png")},
+		{MachineID: m.ID, ItemName: "Cold Brew Coffee", Category: models.CategoryDrink, Price: 40, Stock: 10, ThumbnailURL: str("/assets/icons/icon_drink_coffee_iced.png")},
+		{MachineID: m.ID, ItemName: "Mango Smoothie", Category: models.CategoryDrink, Price: 50, Stock: 8, ThumbnailURL: str("/assets/icons/icon_drink_smoothie.png")},
+		{MachineID: m.ID, ItemName: "Slice of Cake", Category: models.CategoryFood, Price: 35, Stock: 6, ThumbnailURL: str("/assets/icons/icon_food_cake.png")},
+	}
+	for _, sl := range slots {
+		if err := d.Create(&sl).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

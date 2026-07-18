@@ -9,8 +9,11 @@ import (
 
 // Shared sentinels for transactional flows.
 var (
-	errPlotUnavailable = errors.New("plot is not available")
-	errItemUnavailable = errors.New("item no longer available")
+	errPlotUnavailable   = errors.New("plot is not available")
+	errItemUnavailable   = errors.New("item no longer available")
+	errQuestNotClaimable = errors.New("quest is not claimable")
+	errOutOfStock        = errors.New("out of stock")
+	errStockCap          = errors.New("over stock cap")
 )
 
 // ---- helpers ----
