@@ -1,4 +1,6 @@
 import type {
+  NpcActionResult,
+  NpcView,
   PhotoView,
   PlayerCoasterView,
   PlayerJob,
@@ -52,6 +54,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ player_id: playerID }),
     }),
+  spinGacha: () =>
+    req<{ granted: boolean; shop_code: string; refund: number; balance: number }>('/gacha/spin', {
+      method: 'POST',
+    }),
+  npcs: () => req<NpcView[]>('/npc'),
+  talkNpc: (id: string) => req<NpcActionResult>(`/npc/${id}/talk`, { method: 'POST' }),
   quests: () => req<QuestView[]>('/quests'),
   vending: () => req<VendingMachineView[]>('/vending'),
   vendingBuy: (slotId: string) =>

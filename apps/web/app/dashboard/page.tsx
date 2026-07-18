@@ -93,6 +93,9 @@ export default function Dashboard() {
           <Link href="/jobs">
             <button className="secondary">💼 Jobs</button>
           </Link>
+          <Link href="/npc">
+            <button className="secondary">💛 The Bar</button>
+          </Link>
           <Link href="/album">
             <button className="secondary">📸 Album</button>
           </Link>

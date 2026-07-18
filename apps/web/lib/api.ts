@@ -4,12 +4,17 @@ import type {
   CoasterView,
   EmploymentView,
   ListedCoasterView,
+  NpcActionResult,
+  NpcDetailView,
+  NpcView,
   Item,
   JobPostingView,
   PhotoView,
+  PassportView,
   PlayerCoasterView,
   PlayerJob,
   RegularStatusView,
+  StoryView,
   Plot,
   QuestView,
   SharedPhotoView,
@@ -118,6 +123,25 @@ export const api = {
     ),
   myRegulars: (token: string) => req<RegularStatusView[]>('/social/regulars/mine', {}, token),
   myCheers: (token: string) => req<CheersPartnerView[]>('/social/cheers/mine', {}, token),
+  passport: (token: string) => req<PassportView>('/social/passport', {}, token),
+  myStories: (token: string) => req<StoryView[]>('/social/stories/mine', {}, token),
+
+  npcs: (token: string) => req<NpcView[]>('/npc', {}, token),
+  npcDetail: (token: string, id: string) => req<NpcDetailView>(`/npc/${id}`, {}, token),
+  npcTalk: (token: string, id: string) =>
+    req<NpcActionResult>(`/npc/${id}/talk`, { method: 'POST' }, token),
+  npcTip: (token: string, id: string, amount: number) =>
+    req<NpcActionResult>(
+      `/npc/${id}/tip`,
+      { method: 'POST', body: JSON.stringify({ amount }) },
+      token,
+    ),
+  npcGift: (token: string, id: string, itemId: string) =>
+    req<NpcActionResult>(
+      `/npc/${id}/gift`,
+      { method: 'POST', body: JSON.stringify({ item_id: itemId }) },
+      token,
+    ),
 
   myPhotos: (token: string) => req<PhotoView[]>('/photos/mine', {}, token),
   deletePhoto: (token: string, id: string) =>

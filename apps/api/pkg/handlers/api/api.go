@@ -14,6 +14,7 @@ import (
 	"neongather/pkg/logger"
 	"neongather/pkg/models"
 	"neongather/pkg/services/autoserve"
+	"neongather/pkg/services/idle"
 	"neongather/pkg/services/leaderboard"
 	"neongather/pkg/services/moderation"
 	"neongather/pkg/services/progress"
@@ -39,6 +40,7 @@ type Server struct {
 	Photos      models.PhotoStore
 	Coasters    models.CoasterStore
 	Social      models.SocialStore
+	Hearts      models.HeartStore
 	Storage     *storage.Service
 	Moderation  *moderation.Service
 	Leaderboard *leaderboard.Service
@@ -68,12 +70,14 @@ type ServerParams struct {
 	Photos      models.PhotoStore
 	Coasters    models.CoasterStore
 	Social      models.SocialStore
+	Hearts      models.HeartStore
 	Storage     *storage.Service
 	Moderation  *moderation.Service
 	Leaderboard *leaderboard.Service
 	Progress    *progress.Service
 	Hub         *ws.Hub
 	Bot         *autoserve.Bot // constructed so its lifecycle ticker starts
+	Idle        *idle.Service  // same: fx only builds what something depends on
 }
 
 func NewServer(lc fx.Lifecycle, p ServerParams) *Server {
@@ -83,6 +87,7 @@ func NewServer(lc fx.Lifecycle, p ServerParams) *Server {
 		Plots: p.Plots, Items: p.Items, Tables: p.Tables,
 		Jobs: p.Jobs, Quests: p.Quests, Staff: p.Staff,
 		Vending: p.Vending, Photos: p.Photos, Coasters: p.Coasters, Social: p.Social,
+		Hearts: p.Hearts,
 		Storage: p.Storage, Moderation: p.Moderation, Leaderboard: p.Leaderboard,
 		Progress: p.Progress, Hub: p.Hub,
 	}
@@ -192,10 +197,21 @@ func (s *Server) buildEcho() *echo.Echo {
 	p.GET("/marketplace/coasters", s.BrowseCoasterMarket)
 	p.POST("/marketplace/coasters/:id/buy", s.BuyCoaster)
 
-	// Phase 2 — bar social (regulars + cheers)
+	// Phase 2 — bar social (regulars + cheers + passport + stories + gacha)
 	p.POST("/cheers", s.Cheers)
 	p.GET("/social/regulars/mine", s.MyRegulars)
 	p.GET("/social/cheers/mine", s.MyCheers)
+	p.GET("/social/passport", s.Passport)
+	p.GET("/social/stories/mine", s.MyStories)
+	p.POST("/gacha/spin", s.SpinGacha)
+
+	// Phase 2 §6 — heart system (StaffNPC only; no real-money conversion
+	// exists — asserted by TestNoRealMoneyHeartRoutes)
+	p.GET("/npc", s.ListNPCs)
+	p.GET("/npc/:id", s.GetNPC)
+	p.POST("/npc/:id/talk", s.TalkToNPC)
+	p.POST("/npc/:id/tip", s.TipNPC)
+	p.POST("/npc/:id/gift", s.GiftToNPC)
 
 	// Phase 1 — photo booth
 	p.POST("/photos", s.UploadPhoto)

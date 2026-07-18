@@ -33,6 +33,101 @@ func Seed(d *gorm.DB, cfg core.Config) error {
 	if err := seedVending(d); err != nil {
 		return err
 	}
+	if err := seedStories(d); err != nil {
+		return err
+	}
+	if err := seedStaffNPC(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// seedStaffNPC creates the first heart-system character with her full
+// 10-level reward track (Phase 2 §6). One character only this season —
+// schema leaves room for more, no multi-season tooling yet (per the brief).
+// All content wholesome/all-ages; Nara is an adult character.
+func seedStaffNPC(d *gorm.DB) error {
+	var count int64
+	d.Model(&models.StaffNPC{}).Count(&count)
+	// her "home shop" anchors character coasters (Lv3 reward needs a shop FK)
+	var home models.Plot
+	homeID := (*string)(nil)
+	if err := d.First(&home, "code = ?", "A-01").Error; err == nil {
+		homeID = &home.ID
+	}
+	if count > 0 {
+		// keep tunable fields in sync with the current design on reseed
+		return d.Model(&models.StaffNPC{}).Where("name = ?", "Nara").
+			Updates(map[string]any{"shift_start_hour": 18, "shift_end_hour": 2, "home_shop_id": homeID}).Error
+	}
+	nara := models.StaffNPC{
+		HomeShopID:     homeID,
+		Name:           "Nara",
+		ArtistCredit:   "concept: BFL gen — final art: guest artist TBD",
+		ShiftStartHour: 18,
+		ShiftEndHour:   2, // wraps past midnight — the after-last-train crowd is hers
+		SignatureMenu:  "Iced Thai Tea",
+		Season:         "S1",
+		IsActive:       true,
+		Bio:            "The evening bartender (28). Remembers every regular's order and claims the espresso machine is haunted — in a friendly way.",
+	}
+	if err := d.Create(&nara).Error; err != nil {
+		return err
+	}
+	prefs := []models.StaffGiftPref{
+		{StaffID: nara.ID, ItemName: "Mango Smoothie", Preference: models.GiftLoved},
+		{StaffID: nara.ID, ItemName: "Woven Basket", Preference: models.GiftLoved},
+		{StaffID: nara.ID, ItemName: "Slice of Cake", Preference: models.GiftLiked},
+		{StaffID: nara.ID, ItemName: "Iced Thai Tea", Preference: models.GiftLiked},
+		{StaffID: nara.ID, ItemName: "Draft Beer", Preference: models.GiftDisliked},
+	}
+	for _, p := range prefs {
+		if err := d.Create(&p).Error; err != nil {
+			return err
+		}
+	}
+	nodes := []models.StaffStoryNode{
+		{StaffID: nara.ID, RequiredLevel: 1, Title: "A Nod Across the Counter", RewardType: "DIALOGUE", StoryText: "Nara starts greeting you by sight. \"Back again? Good. The good stools are by the window.\""},
+		{StaffID: nara.ID, RequiredLevel: 2, Title: "She Knows Your Name", RewardType: "DIALOGUE", StoryText: "\"I remember orders before names — occupational habit. But I've got yours now. Both.\""},
+		{StaffID: nara.ID, RequiredLevel: 3, Title: "Nara's Coaster", RewardType: "COASTER", RewardRef: "char_nara", StoryText: "She slides a coaster across the counter — her own design. \"Limited run. Don't ask how limited.\""},
+		{StaffID: nara.ID, RequiredLevel: 4, Title: "Story: The First Shift", RewardType: "DIALOGUE", StoryText: "\"My first shift, I broke six glasses and the ice machine. The owner said 'good — now you know where everything is.' I stayed for that.\""},
+		{StaffID: nara.ID, RequiredLevel: 5, Title: "The Secret Recipe", RewardType: "RECIPE", RewardRef: "Nara's Secret Brew", StoryText: "\"Alright. Cold brew, condensed milk, ONE basil leaf. If you sell it, name it after me — I take royalties in gossip.\""},
+		{StaffID: nara.ID, RequiredLevel: 6, Title: "A Little Something", RewardType: "COSMETIC", StoryText: "\"I found this while cleaning the storeroom. It suits your shop more than our shelf.\" (a keepsake for your plot — arriving with the decor system)"},
+		{StaffID: nara.ID, RequiredLevel: 7, Title: "Story: Why This Avenue", RewardType: "DIALOGUE", StoryText: "\"I tried three cities before this one. This is the only place where the rain sounds like applause. You've heard it too, right?\"", RefusalText: "\"Not tonight — it's too loud for that story. Ask me on a quiet one.\""},
+		{StaffID: nara.ID, RequiredLevel: 8, Title: "A Visit to Your Shop", RewardType: "VISIT", StoryText: "\"You keep talking that place up — fine, I'm coming to see it after shift. First round's on you though.\""},
+		{StaffID: nara.ID, RequiredLevel: 9, Title: "Story: The Last Train", RewardType: "TITLE", RewardRef: "Friend of the Bar", StoryText: "\"You know why I like the after-midnight crowd? They're exactly where they mean to be. So am I. So are you.\" — title unlocked: Friend of the Bar"},
+		{StaffID: nara.ID, RequiredLevel: 10, Title: "A Photo Together", RewardType: "PHOTO", RewardRef: "heart_special", StoryText: "\"One photo. ONE. And I pick the backdrop.\" (special portrait art arrives with the guest artist — the booth will remember this unlock)"},
+	}
+	for _, n := range nodes {
+		if err := d.Create(&n).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedStories inserts the bartender story book (idempotent on code).
+// Wholesome, all-ages, no real people or brands.
+func seedStories(d *gorm.DB) error {
+	stories := []models.BartenderStory{
+		{Code: "story_first_pour", Title: "The First Pour", Body: "They say the first drink ever served on this avenue was poured with shaking hands and too much ice. The customer smiled anyway. That smile paid the first month's rent.", SortOrder: 1},
+		{Code: "story_rain_night", Title: "Rainy Season", Body: "When the rain hits the skylight just right, the whole hall sounds like applause. The regulars stop talking for a minute, every time. Nobody planned that tradition — it just happens.", SortOrder: 2},
+		{Code: "story_lost_coaster", Title: "The Lost Coaster", Body: "A customer once traded their rarest coaster for a stranger's umbrella on a stormy night. They both still come here. They still argue about who got the better deal.", SortOrder: 3},
+		{Code: "story_vending_ghost", Title: "The Generous Machine", Body: "V-01 once dropped two drinks for one coin. The owner checked the logs for a week and found nothing. Some machines are just kind, I suppose.", SortOrder: 4},
+		{Code: "story_photo_wall", Title: "Say Cheese", Body: "The photo booth curtain has heard more secrets than I have. It keeps them better, too — everything comes out as a smile.", SortOrder: 5},
+		{Code: "story_first_regular", Title: "Twenty Cups", Body: "Our first regular ordered the same thing twenty times before I learned their name. Turns out that IS how you learn a name properly — one cup at a time.", SortOrder: 6},
+		{Code: "story_midnight_sweep", Title: "Midnight Sweep", Body: "After midnight, the bot sweeps the floor in perfect little squares. I swear it hums. Don't tell the engineers.", LateNightOnly: true, SortOrder: 7},
+		{Code: "story_last_train", Title: "After the Last Train", Body: "The ones who stay past the last train aren't stuck here. They're exactly where they mean to be. That's the whole secret of this place.", LateNightOnly: true, SortOrder: 8},
+	}
+	for _, st := range stories {
+		var existing models.BartenderStory
+		if err := d.First(&existing, "code = ?", st.Code).Error; err == nil {
+			continue
+		}
+		if err := d.Create(&st).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -56,6 +151,8 @@ func seedQuests(d *gorm.DB) error {
 		{Code: "daily_collect", Type: models.QuestDaily, Title: "Bus the Tables", Description: "Collect 2 tables today", Event: models.EventTableCollect, Target: 2, RewardCoins: 50, SortOrder: 21},
 		{Code: "daily_vending", Type: models.QuestDaily, Title: "Snack Run", Description: "Buy 1 thing from a vending machine", Event: models.EventVendingBuy, Target: 1, RewardCoins: 40, SortOrder: 22},
 		{Code: "daily_cheers", Type: models.QuestDaily, Title: "Clink!", Description: "Cheers with another player", Event: models.EventCheers, Target: 1, RewardCoins: 40, SortOrder: 23},
+		{Code: "daily_chill", Type: models.QuestDaily, Title: "Just Chill", Description: "Relax at the bar zone for 5 minutes", Event: models.EventBarIdle, Target: 5, RewardCoins: 50, SortOrder: 24},
+		{Code: "daily_gacha", Type: models.QuestDaily, Title: "Lucky Capsule", Description: "Spin the gachapon once", Event: models.EventGachaSpin, Target: 1, RewardCoins: 30, SortOrder: 25},
 		// weekly quest
 		{Code: "weekly_market", Type: models.QuestWeekly, Title: "Trade Week", Description: "Complete 10 marketplace purchases this week", Event: models.EventMarketBuy, Target: 10, RewardCoins: 300, SortOrder: 30},
 		// community quest (server-wide weekly goal)

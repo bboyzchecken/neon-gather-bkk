@@ -55,6 +55,11 @@ func (s *Server) OrderTable(c echo.Context) error {
 		s.grantOrderCoasters(userID(c), *t.PlotID)
 		s.trackRegular(userID(c), *t.PlotID, name)
 	}
+	// §3 passport stamp + §5 story roll happen on any successful order
+	_, _ = s.Social.StampTasting(userID(c), name)
+	s.maybeTellStory(userID(c))
+	// §6: ordering a character's signature menu during shift warms them up
+	s.grantSignatureHearts(userID(c), name)
 	// Notify employed staff of the plot so they can come serve (Phase 1 job board).
 	if t.PlotID != nil {
 		if staff, err := s.Staff.ActiveStaffForPlot(*t.PlotID); err == nil {

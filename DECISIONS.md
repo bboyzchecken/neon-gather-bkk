@@ -248,3 +248,47 @@ shop's REGULAR-tier coaster. `cheers_logs` stores canonically-ordered pairs
 self and NPC targets are all impossible, and the client can't fake presence.
 Pure rules live in `domain/social` with tests. Cheers awards a small EXPLORER XP
 to both sides and feeds a new daily quest.
+
+### D2.7 Chill-lounge ambience + §4 adaptation (2026-07-19)
+Direction: the interior must feel relaxing, not cramped. Ambient dim/vignette
+halved, windows on both back walls doubled (every other bay), a skylight
+light-well pools daylight over a new lounge courtyard (BFL-generated sofa
+group + flat teal rug + gachapon). §4's fishing tie-in is gone with fishing
+(D0.8), but its intent survives: an `idle` service scans the LIVE hub
+positions once a minute and awards a small EXPLORER XP tick to players
+relaxing in the bar zone (server state only — unfakeable), with the in-game
+hint pointing idle players at the job board. fx gotcha recorded: lifecycle
+services must appear in ServerParams or fx never constructs them.
+
+### D2.8 §3 passport + §5 slice (gachapon, bartender stories)
+TastingStamp UNIQUE(player, menu) on every successful order; the passport
+target is COUNT(DISTINCT name) of DRINK/FOOD items so the book grows with
+player content. Gachapon is a coin sink (config GACHA_PRICE) that grants a
+random open shop's SEASONAL coaster — feeding §1; duplicates refund 10c.
+Bartender stories: 8 seeded wholesome tales (2 late-night-only by server
+clock), 35% roll per order, collectible log in the album.
+**Deferred from §5:** darts/dice/cards, claw machine visual, per-shop arcade
+leaderboard, and the jukebox (upload+moderation+rights-confirmation surface
+— needs its own careful slice).
+
+### D2.9 §6 heart system + §7 iron-rule tests
+First character: Nara (bartender, adult, shift 18→02 wrapping midnight,
+signature Iced Thai Tea, home shop A-01). Iron rules are enforced
+structurally and TESTED:
+- (a) `player_affinities.staff_id` carries a real FK onto `staff_npcs` —
+  `TestAffinityCannotTargetRealPlayers` runs against live Postgres and
+  proves an affinity row pointing at a user id is REJECTED by the DB.
+- (b) no real-money conversion: `TestNoRealMoneyHeartRoutes` scans the real
+  route table; the only NPC actions are talk/tip/gift.
+- (e) every NPC DTO carries `is_npc: true`; game + web render an explicit
+  ☆ badge.
+- (f) points/last_talked_at are server-computed; the daily-talk guard is a
+  SQL predicate, not client state.
+- (g) StaffStoryNode carries RefusalText — characters can decline.
+Earning: gifts strongest (LOVED 25 … DISLIKED 1) > daily talk 8 > signature
+order 4 > tip 3 > passive presence 1/min (idle ticker). 10-level track
+seeded; Lv3 grants her CHAR-NARA coaster, Lv5 mints the secret-recipe item.
+Lv6 cosmetic / Lv8 visit event / Lv10 heart_special portrait deliver their
+story text now — their tangible payloads land with the decor system and the
+guest artist's final art (concept sheet generated for handoff; AI art is
+concept-only for characters per the asset library rule).

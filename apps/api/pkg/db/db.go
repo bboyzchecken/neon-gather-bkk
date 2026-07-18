@@ -108,6 +108,36 @@ func Migrate(d *gorm.DB) error {
 				return tx.Migrator().DropTable("cheers_logs", "regular_statuses")
 			},
 		},
+		{
+			ID: "20260719_phase2_lounge",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(
+					&models.TastingStamp{},
+					&models.BartenderStory{},
+					&models.PlayerStory{},
+				)
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("player_stories", "bartender_stories", "tasting_stamps")
+			},
+		},
+		{
+			ID: "20260719_phase2_heart",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(
+					&models.StaffNPC{},
+					&models.StaffGiftPref{},
+					&models.PlayerAffinity{},
+					&models.StaffStoryNode{},
+				)
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable(
+					"staff_story_nodes", "player_affinities",
+					"staff_gift_prefs", "staff_npcs",
+				)
+			},
+		},
 	})
 	return m.Migrate()
 }

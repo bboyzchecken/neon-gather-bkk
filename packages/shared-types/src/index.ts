@@ -255,6 +255,59 @@ export interface CheersPartnerView {
   first_cheers_at: string;
 }
 
+export interface PassportView {
+  stamps: Array<{ menu_name: string; first_tried_at: string }>;
+  total_menus: number;
+  percent: number;
+}
+
+export interface StoryView {
+  code: string;
+  title: string;
+  body: string;
+  late_night_only: boolean;
+  unlocked_at: string;
+}
+
+/* Heart system (§6). is_npc is ALWAYS true — UIs must badge NPCs so they
+ * can never be mistaken for real players (iron rule e). */
+export interface NpcView {
+  id: string;
+  is_npc: true;
+  name: string;
+  bio: string;
+  artist_credit: string;
+  signature_menu: string;
+  shift_start_hour: number;
+  shift_end_hour: number;
+  on_shift: boolean;
+  heart_points: number;
+  heart_level: number;
+  next_level_at: number;
+  talked_today: boolean;
+}
+
+export interface NpcStoryNodeView {
+  required_level: number;
+  title: string;
+  story_text?: string;
+  reward_type: string;
+  unlocked: boolean;
+}
+
+export interface NpcDetailView {
+  npc: NpcView;
+  story_track: NpcStoryNodeView[];
+  gift_prefs: Array<{ item_name: string; preference: string }>;
+}
+
+export interface NpcActionResult {
+  line: string;
+  preference?: string;
+  heart_points: number;
+  heart_level: number;
+}
+
 export interface SharedPhotoView {
   url: string;
   caption: string;
@@ -306,7 +359,10 @@ export type ServerMessage =
   | { type: 'coaster_granted'; tier: CoasterTier; shop_code: string; coaster_id: string }
   | { type: 'coaster_sold'; listing_id: string; price: number }
   | { type: 'cheers'; from_id: string; from_name: string; total: number }
-  | { type: 'regular_achieved'; shop_code: string; menu_name: string };
+  | { type: 'regular_achieved'; shop_code: string; menu_name: string }
+  | { type: 'bartender_story'; title: string; body: string }
+  | { type: 'heart_level_up'; staff_id: string; level: number }
+  | { type: 'heart_story'; staff_name: string; title: string; story_text: string };
 
 /* ============================================================
  * Cross-window handshake (web shell -> embedded game iframe)

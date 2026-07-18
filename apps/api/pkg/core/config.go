@@ -20,6 +20,7 @@ type Config struct {
 	CoasterSeasonCap int    // max grants per shop per season (<=0 = unlimited)
 	// Phase 2 — bar social
 	RegularThreshold int // orders of the same menu at the same shop to become a regular
+	GachaPrice       int // coins per gachapon spin (sink)
 
 	Postgres PostgresConfig
 	Redis    RedisConfig
