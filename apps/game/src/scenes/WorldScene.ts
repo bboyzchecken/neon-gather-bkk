@@ -88,6 +88,10 @@ const DEMO_VENDING: VendingMachineView[] = [
 /** Photo-booth placement (2×2 tiles per the Art & Grid Standards). */
 const BOOTH = { gx: 20, gy: 18, w: 2, h: 2 };
 
+/** Interior shell: perimeter wall height + entrance bay on the gy=0 wall. */
+const WALL_H = 170;
+const ENTRANCE = { start: 10, width: 4 };
+
 /** AutoServeBot home position (beside the bar counter). */
 const BOT_HOME: Cell = { gx: 14, gy: 17 };
 const BOT_SPEED_TILES = 2.6;
@@ -136,6 +140,7 @@ export class WorldScene extends Phaser.Scene {
   private quests: QuestView[] = [];
   private questPanel?: Phaser.GameObjects.Container;
   private questPanelVisible = true;
+  private ambientG?: Phaser.GameObjects.Graphics;
   private blockedTiles = new Set<number>();
   private bot?: Phaser.GameObjects.Container;
   private botPos: Cell = { ...BOT_HOME };
@@ -157,10 +162,15 @@ export class WorldScene extends Phaser.Scene {
 
   create(): void {
     this.drawGround();
+    this.drawInteriorShell();
     this.drawDecor();
     this.createAvatar();
     this.createHud();
+    this.drawAmbient();
     this.setupInput();
+    // perimeter wall tiles are impassable for the AutoServeBot
+    for (let gx = 0; gx < COLS; gx++) this.blockedTiles.add(gx);
+    for (let gy = 0; gy < ROWS; gy++) this.blockedTiles.add(gy * COLS);
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
     this.cameras.main.startFollow(this.avatar, true, 0.1, 0.1);
 
@@ -227,20 +237,202 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private drawGround(): void {
-    const isoKey = this.makeIsoFloor('floor_terracotta');
-    if (isoKey) {
+    // Interior hall: polished concrete everywhere, terracotta walkway cross
+    // (entrance corridor + food-court promenade) guiding the flow.
+    const conc = this.makeIsoFloor('floor_concrete');
+    const terra = this.makeIsoFloor('floor_terracotta');
+    if (conc || terra) {
       this.groundRT = this.add.renderTexture(0, 0, WORLD_W, WORLD_H).setOrigin(0).setDepth(0);
-      this.blitFloor(isoKey, 0, 0, COLS, ROWS);
+      if (conc) this.blitFloor(conc, 0, 0, COLS, ROWS);
+      if (terra) {
+        this.blitFloor(terra, ENTRANCE.start, 1, ENTRANCE.width, ROWS - 1);
+        this.blitFloor(terra, 1, 14, COLS - 1, 4);
+      }
     } else {
       // fallback: flat-shaded diamonds
       const g = this.add.graphics().setDepth(0);
       for (let gy = 0; gy < ROWS; gy++) {
         for (let gx = 0; gx < COLS; gx++) {
-          g.fillStyle((gx + gy) % 2 === 0 ? 0xc97f56 : 0xd18a60, 1);
+          g.fillStyle((gx + gy) % 2 === 0 ? 0xc9bda4 : 0xd4c8b0, 1);
           this.fillDiamond(g, gx, gy);
         }
       }
     }
+  }
+
+  // ---------- interior shell (walls, entrance, lights, ambience) ----------
+  /** Product direction: the world reads as the INSIDE of one building —
+   * perimeter walls with columns/windows, a glass entrance, string lights
+   * and a warm dim — not an open outdoor plaza. */
+  private drawInteriorShell(): void {
+    const g = this.add.graphics().setDepth(1);
+
+    // point u∈[0..1] along base a→b, lifted h px off the floor
+    const P = (
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      u: number,
+      h: number,
+    ): Phaser.Geom.Point =>
+      new Phaser.Geom.Point(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u - h);
+    const quad = (
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      u0: number,
+      u1: number,
+      h0: number,
+      h1: number,
+      color: number,
+      alpha = 1,
+    ): void => {
+      g.fillStyle(color, alpha);
+      g.fillPoints([P(a, b, u0, h1), P(a, b, u1, h1), P(a, b, u1, h0), P(a, b, u0, h0)], true);
+    };
+
+    // one wall bay on the base segment a→b
+    const bay = (
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      face: number,
+      kind: 'plain' | 'window' | 'door',
+    ): void => {
+      quad(a, b, 0, 1, 0, WALL_H, face); // face
+      if (kind === 'window') {
+        quad(a, b, 0.2, 0.8, 74, 148, 0x1e3d34); // frame
+        quad(a, b, 0.24, 0.76, 80, 142, 0x9fd3cd, 0.95); // glass
+        quad(a, b, 0.24, 0.76, 80, 111, 0xc3e6e1, 0.5); // sky sheen
+      }
+      if (kind === 'door') {
+        quad(a, b, 0.04, 0.96, 0, 152, 0x1e3d34); // door frame
+        quad(a, b, 0.08, 0.49, 6, 146, 0xffe9b0, 0.92); // glass, daylight behind
+        quad(a, b, 0.51, 0.92, 6, 146, 0xffe9b0, 0.92);
+        quad(a, b, 0.08, 0.92, 96, 104, 0x1e3d34); // push bar
+      }
+      quad(a, b, 0, 1, 0, 14, 0x8a5a2b); // teak baseboard
+      quad(a, b, 0, 1, WALL_H - 8, WALL_H, 0x16302a); // cornice
+    };
+    const column = (a: { x: number; y: number }, b: { x: number; y: number }): void => {
+      quad(a, b, -0.06, 0.06, 0, WALL_H + 6, 0x1e3d34);
+    };
+
+    // north-east wall (gy = 0) with the entrance doors
+    for (let gx = 0; gx < COLS; gx++) {
+      const a = isoPos(gx, 0);
+      const b = isoPos(gx + 1, 0);
+      const inDoor = gx >= ENTRANCE.start && gx < ENTRANCE.start + ENTRANCE.width;
+      bay(a, b, 0xe6d5b8, inDoor ? 'door' : gx % 4 === 2 ? 'window' : 'plain');
+    }
+    // north-west wall (gx = 0)
+    for (let gy = 0; gy < ROWS; gy++) {
+      const a = isoPos(0, gy);
+      const b = isoPos(0, gy + 1);
+      bay(a, b, 0xf2e6cf, gy % 4 === 2 ? 'window' : 'plain');
+    }
+    // columns every 4 tiles + the corner
+    for (let gx = 0; gx <= COLS; gx += 4) {
+      column(isoPos(gx, 0), isoPos(gx + 1, 0));
+    }
+    for (let gy = 4; gy <= ROWS; gy += 4) {
+      column(isoPos(0, gy), isoPos(0, gy + 1));
+    }
+
+    // warm light spill on the floor inside the entrance
+    const doorMid = isoPos(ENTRANCE.start + ENTRANCE.width / 2, 0.9);
+    g.fillStyle(0xffdf9e, 0.12);
+    g.fillEllipse(doorMid.x, doorMid.y + 26, TILE_W * 3.4, TILE_H * 2.6);
+
+    this.drawStringLights(g);
+
+    // low cutaway walls on the two FRONT edges close the room without hiding
+    // the interior (drawn above world objects — they sit closest to camera)
+    const f = this.add.graphics().setDepth(8000);
+    const fq = (
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      h0: number,
+      h1: number,
+      color: number,
+      alpha = 1,
+    ): void => {
+      f.fillStyle(color, alpha);
+      f.fillPoints(
+        [
+          new Phaser.Geom.Point(a.x, a.y - h1),
+          new Phaser.Geom.Point(b.x, b.y - h1),
+          new Phaser.Geom.Point(b.x, b.y - h0),
+          new Phaser.Geom.Point(a.x, a.y - h0),
+        ],
+        true,
+      );
+    };
+    const LOW = 42;
+    for (let gy = 0; gy < ROWS; gy++) {
+      const a = isoPos(COLS, gy);
+      const b = isoPos(COLS, gy + 1);
+      fq(a, b, 0, LOW, 0xe6d5b8);
+      fq(a, b, LOW - 7, LOW, 0x8a5a2b); // teak cap rail
+      fq(a, b, 0, 8, 0x16302a);
+    }
+    for (let gx = 0; gx < COLS; gx++) {
+      const a = isoPos(gx, ROWS);
+      const b = isoPos(gx + 1, ROWS);
+      fq(a, b, 0, LOW, 0xf2e6cf);
+      fq(a, b, LOW - 7, LOW, 0x8a5a2b);
+      fq(a, b, 0, 8, 0x16302a);
+    }
+  }
+
+  /** Sagging string-light arcs between the two back walls (ceiling feel). */
+  private drawStringLights(g: Phaser.GameObjects.Graphics): void {
+    for (const c of [5, 12, 19]) {
+      const s = isoPos(0.2, c);
+      const e = isoPos(c, 0.2);
+      const start = new Phaser.Math.Vector2(s.x, s.y - WALL_H + 14);
+      const end = new Phaser.Math.Vector2(e.x, e.y - WALL_H + 14);
+      const mid = new Phaser.Math.Vector2(
+        (start.x + end.x) / 2,
+        Math.max(start.y, end.y) + 56,
+      );
+      const curve = new Phaser.Curves.QuadraticBezier(start, mid, end);
+      const pts = curve.getPoints(26);
+      g.lineStyle(2, 0x2c241a, 0.55);
+      g.strokePoints(pts, false);
+      pts.forEach((p, i) => {
+        if (i % 2 === 0) {
+          g.fillStyle(0xffd98a, 0.22);
+          g.fillCircle(p.x, p.y + 3, 7);
+          g.fillStyle(0xffe9b0, 0.95);
+          g.fillCircle(p.x, p.y + 3, 3);
+        }
+      });
+    }
+  }
+
+  /** Screen-space warm dim + vignette so the hall feels enclosed. */
+  private drawAmbient(): void {
+    const paint = (): void => {
+      this.ambientG?.destroy();
+      const w = this.scale.width;
+      const h = this.scale.height;
+      const g = this.add.graphics().setScrollFactor(0).setDepth(9998);
+      g.fillStyle(0x1a1006, 0.09);
+      g.fillRect(0, 0, w, h);
+      // faked gradient vignette: two bands per edge
+      const bands: Array<[number, number]> = [
+        [18, 0.16],
+        [46, 0.07],
+      ];
+      for (const [t, a] of bands) {
+        g.fillStyle(0x120c04, a);
+        g.fillRect(0, 0, w, t);
+        g.fillRect(0, h - t, w, t);
+        g.fillRect(0, 0, t, h);
+        g.fillRect(w - t, 0, t, h);
+      }
+      this.ambientG = g;
+    };
+    paint();
+    this.scale.on('resize', paint);
   }
 
   private fillDiamond(g: Phaser.GameObjects.Graphics, gx: number, gy: number): void {
@@ -1104,8 +1296,9 @@ export class WorldScene extends Phaser.Scene {
         dgx /= len;
         dgy /= len;
       }
-      this.pos.gx = Phaser.Math.Clamp(this.pos.gx + dgx * SPEED_TILES * dt, 0.3, COLS - 0.3);
-      this.pos.gy = Phaser.Math.Clamp(this.pos.gy + dgy * SPEED_TILES * dt, 0.3, ROWS - 0.3);
+      // min 1.15: keep the avatar out of the perimeter wall footprint
+      this.pos.gx = Phaser.Math.Clamp(this.pos.gx + dgx * SPEED_TILES * dt, 1.15, COLS - 0.3);
+      this.pos.gy = Phaser.Math.Clamp(this.pos.gy + dgy * SPEED_TILES * dt, 1.15, ROWS - 0.3);
       const s = isoPos(this.pos.gx, this.pos.gy);
       this.avatar.setPosition(s.x, s.y).setDepth(s.y);
       this.dir = Math.abs(ix) >= Math.abs(iy) ? (ix > 0 ? 'right' : 'left') : iy > 0 ? 'down' : 'up';
