@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import type { PhotoView, PlayerCoasterView } from '@neon/shared-types';
+import type { PassportView, PhotoView, PlayerCoasterView, StoryView } from '@neon/shared-types';
 import { api } from '../../lib/api';
 import { loadAuth } from '../../lib/auth';
 
@@ -20,17 +20,23 @@ export default function Album() {
   const [token, setToken] = useState<string | null>(null);
   const [photos, setPhotos] = useState<PhotoView[]>([]);
   const [coasters, setCoasters] = useState<PlayerCoasterView[]>([]);
+  const [passport, setPassport] = useState<PassportView | null>(null);
+  const [stories, setStories] = useState<StoryView[]>([]);
   const [err, setErr] = useState('');
   const [copied, setCopied] = useState('');
 
   const refresh = useCallback(async (t: string) => {
     try {
-      const [ps, cs] = await Promise.all([
+      const [ps, cs, pp, st] = await Promise.all([
         api.myPhotos(t),
         api.myCoasters(t).catch(() => [] as PlayerCoasterView[]),
+        api.passport(t).catch(() => null),
+        api.myStories(t).catch(() => [] as StoryView[]),
       ]);
       setPhotos(ps);
       setCoasters(cs);
+      setPassport(pp);
+      setStories(st);
     } catch (ex) {
       setErr((ex as Error).message);
     }
@@ -121,6 +127,57 @@ export default function Album() {
           ))}
         </div>
       </div>
+
+      {passport && (
+        <div className="card">
+          <h3>
+            🛂 Tasting passport — {passport.stamps.length}/{passport.total_menus} menus (
+            {passport.percent}%)
+          </h3>
+          <div
+            style={{
+              background: '#22343f',
+              borderRadius: 6,
+              height: 10,
+              margin: '8px 0',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${passport.percent}%`,
+                height: '100%',
+                background: '#2f6f6a',
+              }}
+            />
+          </div>
+          {passport.stamps.length > 0 && (
+            <p className="muted" style={{ fontSize: 13 }}>
+              {passport.stamps.map((s) => s.menu_name).join(' · ')}
+            </p>
+          )}
+          {passport.stamps.length === 0 && (
+            <p className="muted">Order anything at a table to collect your first stamp.</p>
+          )}
+        </div>
+      )}
+
+      {stories.length > 0 && (
+        <div className="card">
+          <h3>📖 Stories from the bar ({stories.length})</h3>
+          {stories.map((s) => (
+            <div key={s.code} style={{ borderTop: '1px solid #2a3f4d', padding: '8px 0' }}>
+              <b>
+                {s.title}
+                {s.late_night_only ? ' 🌙' : ''}
+              </b>
+              <p className="muted" style={{ fontSize: 13, margin: '4px 0 0' }}>
+                {s.body}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {photos.length === 0 && (
         <div className="card">

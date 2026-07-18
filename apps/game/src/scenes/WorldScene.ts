@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type {
   Direction,
+  NpcView,
   PlayerState,
   Plot,
   QuestView,
@@ -97,6 +98,10 @@ const ENTRANCE = { start: 10, width: 4 };
 /** Display cabinet (Phase 2 §1) — shows your coaster collection. */
 const CABINET = { gx: 22, gy: 15 };
 
+/** Chill lounge courtyard under the skylight (sofa + rug + gachapon). */
+const LOUNGE = { gx: 17.5, gy: 9.5 };
+const GACHA = { gx: 20.5, gy: 10.5 };
+
 /** AutoServeBot home position (beside the bar counter). */
 const BOT_HOME: Cell = { gx: 14, gy: 17 };
 const BOT_SPEED_TILES = 2.6;
@@ -149,6 +154,10 @@ export class WorldScene extends Phaser.Scene {
   private nearCabinet = false;
   private coasterPanel?: Phaser.GameObjects.Container;
   private nearPlayerId?: string;
+  private nearGacha = false;
+  private npcs: NpcView[] = [];
+  private npcActor?: Phaser.GameObjects.Container;
+  private nearNpcId?: string;
   private blockedTiles = new Set<number>();
   private bot?: Phaser.GameObjects.Container;
   private botPos: Cell = { ...BOT_HOME };
@@ -197,6 +206,7 @@ export class WorldScene extends Phaser.Scene {
       void this.loadPlots();
       void this.loadVending();
       void this.loadQuests();
+      void this.loadNpcs();
       this.connectSocket();
     }
     this.events.once('shutdown', () => this.ws?.close());
@@ -323,18 +333,19 @@ export class WorldScene extends Phaser.Scene {
       quad(a, b, -0.06, 0.06, 0, WALL_H + 6, 0x1e3d34);
     };
 
-    // north-east wall (gy = 0) with the entrance doors
+    // north-east wall (gy = 0) with the entrance doors — windows every other
+    // bay keep the room airy (chill-lounge direction)
     for (let gx = 0; gx < COLS; gx++) {
       const a = isoPos(gx, 0);
       const b = isoPos(gx + 1, 0);
       const inDoor = gx >= ENTRANCE.start && gx < ENTRANCE.start + ENTRANCE.width;
-      bay(a, b, 0xe6d5b8, inDoor ? 'door' : gx % 4 === 2 ? 'window' : 'plain');
+      bay(a, b, 0xe6d5b8, inDoor ? 'door' : gx % 2 === 0 ? 'window' : 'plain');
     }
     // north-west wall (gx = 0)
     for (let gy = 0; gy < ROWS; gy++) {
       const a = isoPos(0, gy);
       const b = isoPos(0, gy + 1);
-      bay(a, b, 0xf2e6cf, gy % 4 === 2 ? 'window' : 'plain');
+      bay(a, b, 0xf2e6cf, gy % 2 === 0 ? 'window' : 'plain');
     }
     // columns every 4 tiles + the corner
     for (let gx = 0; gx <= COLS; gx += 4) {
@@ -348,6 +359,14 @@ export class WorldScene extends Phaser.Scene {
     const doorMid = isoPos(ENTRANCE.start + ENTRANCE.width / 2, 0.9);
     g.fillStyle(0xffdf9e, 0.12);
     g.fillEllipse(doorMid.x, doorMid.y + 26, TILE_W * 3.4, TILE_H * 2.6);
+
+    // skylight light-well over the lounge courtyard — daylight pooling in
+    // the middle keeps the enclosed hall feeling open and chill
+    const sky = isoPos(LOUNGE.gx, LOUNGE.gy);
+    g.fillStyle(0xfff3d0, 0.07);
+    g.fillEllipse(sky.x, sky.y, TILE_W * 7.5, TILE_H * 6.5);
+    g.fillStyle(0xfff8e2, 0.08);
+    g.fillEllipse(sky.x, sky.y, TILE_W * 4.5, TILE_H * 3.8);
 
     this.drawStringLights(g);
 
@@ -423,12 +442,13 @@ export class WorldScene extends Phaser.Scene {
       const w = this.scale.width;
       const h = this.scale.height;
       const g = this.add.graphics().setScrollFactor(0).setDepth(9998);
-      g.fillStyle(0x1a1006, 0.09);
+      // kept light on purpose: cozy, not cramped (chill-lounge direction)
+      g.fillStyle(0x1a1006, 0.045);
       g.fillRect(0, 0, w, h);
-      // faked gradient vignette: two bands per edge
+      // faked gradient vignette: two soft bands per edge
       const bands: Array<[number, number]> = [
-        [18, 0.16],
-        [46, 0.07],
+        [14, 0.09],
+        [40, 0.04],
       ];
       for (const [t, a] of bands) {
         g.fillStyle(0x120c04, a);
@@ -465,6 +485,26 @@ export class WorldScene extends Phaser.Scene {
 
   private drawDecor(): void {
     this.placeProp('counter_bar', 15.6, 16.2, TILE_W * 2.9);
+    // lounge courtyard: flat rug hugs the floor, sofa group on top
+    if (this.tex('rug')) {
+      const r = isoPos(LOUNGE.gx, LOUNGE.gy + 0.3);
+      const rug = this.add.image(r.x, r.y, 'rug').setOrigin(0.5).setDepth(1.5);
+      rug.setDisplaySize(TILE_W * 3.4, (TILE_W * 3.4 * rug.height) / rug.width);
+    }
+    this.placeProp('sofa', LOUNGE.gx, LOUNGE.gy, TILE_W * 2.1);
+    this.placeProp('gacha', GACHA.gx + 0.5, GACHA.gy + 0.5, TILE_W * 0.75);
+    if (this.tex('gacha')) {
+      const c = isoPos(GACHA.gx + 0.5, GACHA.gy + 0.5);
+      this.add
+        .text(c.x, c.y + TILE_H * 0.55, '🎰 gachapon', {
+          color: '#ffffff',
+          fontSize: '12px',
+          backgroundColor: '#00000099',
+          padding: { x: 4, y: 1 },
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(9000);
+    }
     this.placeProp('cabinet', CABINET.gx + 0.5, CABINET.gy + 0.5, TILE_W * 0.9);
     if (this.tex('cabinet')) {
       const c = isoPos(CABINET.gx + 0.5, CABINET.gy + 0.5);
@@ -557,6 +597,7 @@ export class WorldScene extends Phaser.Scene {
     kb.on('keydown-E', () => void this.onInteract());
     kb.on('keydown-Q', () => this.toggleQuestPanel());
     kb.on('keydown-C', () => void this.onCheers());
+    kb.on('keydown-T', () => void this.onTalkNpc());
     kb.on('keydown-ESC', () => {
       this.exitPhotoMode();
       this.closeCoasterPanel();
@@ -836,6 +877,16 @@ export class WorldScene extends Phaser.Scene {
       case 'coaster_sold':
         this.toast(`🪙 Your coaster sold for ${msg.price}c!`, 0x2ea36a);
         break;
+      case 'bartender_story':
+        this.toast(`📖 "${msg.title}" — new story in your album!`, 0x2f6f6a);
+        break;
+      case 'heart_level_up':
+        this.toast(`💛 Heart level ${msg.level}!`, 0xd08bb0);
+        void this.loadNpcs();
+        break;
+      case 'heart_story':
+        this.toast(`💛 ${msg.staff_name}: "${msg.title}" unlocked`, 0xd08bb0);
+        break;
       case 'regular_achieved':
         this.toast(`⭐ You are now a regular at ${msg.shop_code} (${msg.menu_name})!`, 0xc9a227);
         break;
@@ -929,6 +980,10 @@ export class WorldScene extends Phaser.Scene {
       await this.openCoasterPanel();
       return;
     }
+    if (this.nearGacha) {
+      await this.onSpinGacha();
+      return;
+    }
     if (this.nearBooth) {
       this.enterPhotoMode();
       return;
@@ -938,6 +993,101 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
     await this.onInteractTable();
+  }
+
+  // ---------- Phase 2 §6: StaffNPC presence ----------
+  /** Position behind the bar counter where the on-shift character stands. */
+  private static readonly NPC_SPOT = { gx: 14.6, gy: 15.4 };
+
+  private async loadNpcs(): Promise<void> {
+    try {
+      this.npcs = await api.npcs();
+    } catch {
+      this.npcs = [];
+    }
+    const onShift = this.npcs.find((n) => n.on_shift);
+    this.npcActor?.destroy();
+    this.npcActor = undefined;
+    if (!onShift) return;
+    // distinct look + explicit NPC badge — never confusable with players
+    const body = this.add.rectangle(0, 0, 26, 34, 0xd08bb0).setStrokeStyle(2, 0x0b1a22);
+    const apron = this.add.rectangle(0, 8, 20, 14, 0x1e3d34).setStrokeStyle(1, 0x0b1a22);
+    const label = this.add
+      .text(0, -32, `${onShift.name} · NPC ☆`, {
+        color: '#ffd1e8',
+        fontSize: '11px',
+        backgroundColor: '#00000066',
+        padding: { x: 3, y: 1 },
+      })
+      .setOrigin(0.5);
+    this.npcActor = this.add.container(0, 0, [body, apron, label]);
+    const p = isoPos(WorldScene.NPC_SPOT.gx, WorldScene.NPC_SPOT.gy);
+    this.npcActor.setPosition(p.x, p.y).setDepth(p.y);
+  }
+
+  private async onTalkNpc(): Promise<void> {
+    if (this.busy || !this.nearNpcId) return;
+    if (this.offline) {
+      this.toast('Offline preview — talking needs the API', 0xcc8844);
+      return;
+    }
+    this.busy = true;
+    try {
+      const res = await api.talkNpc(this.nearNpcId);
+      this.toast(`💬 ${res.line}`, 0x2f6f6a);
+    } catch (err) {
+      this.toast((err as Error).message, 0xcc8844);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  // ---------- Phase 2 §5: gachapon ----------
+  private async onSpinGacha(): Promise<void> {
+    if (this.busy) return;
+    if (this.offline) {
+      this.toast('Offline preview — gacha needs the API', 0xcc8844);
+      return;
+    }
+    this.busy = true;
+    try {
+      const res = await api.spinGacha();
+      this.coins = res.balance;
+      this.updateHud();
+      this.playGachaDrop();
+      this.toast(
+        res.granted
+          ? `🎉 Capsule! ${res.shop_code} seasonal coaster!`
+          : `Capsule… duplicate — +${res.refund}c back`,
+        res.granted ? 0x2ea36a : 0x8a5a2b,
+      );
+    } catch (err) {
+      this.toast((err as Error).message, 0xcc4444);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private playGachaDrop(): void {
+    const c = isoPos(GACHA.gx + 0.5, GACHA.gy + 0.5);
+    const ball = this.add
+      .text(c.x, c.y + TILE_H * 0.35 - 70, '🔮', { fontSize: '20px' })
+      .setOrigin(0.5)
+      .setDepth(9500);
+    this.tweens.add({
+      targets: ball,
+      y: c.y + TILE_H * 0.3,
+      duration: 380,
+      ease: 'Bounce.easeOut',
+      onComplete: () =>
+        this.tweens.add({
+          targets: ball,
+          alpha: 0,
+          delay: 420,
+          duration: 320,
+          onComplete: () => ball.destroy(),
+        }),
+    });
   }
 
   // ---------- Phase 2: cheers (server verifies presence) ----------
@@ -1519,6 +1669,20 @@ export class WorldScene extends Phaser.Scene {
       Math.hypot(this.pos.gx - (CABINET.gx + 0.5), this.pos.gy - (CABINET.gy + 0.5)) < 1.8;
     if (wasNearCabinet && !this.nearCabinet) this.closeCoasterPanel();
 
+    this.nearGacha =
+      Math.hypot(this.pos.gx - (GACHA.gx + 0.5), this.pos.gy - (GACHA.gy + 0.5)) < 1.6;
+
+    this.nearNpcId = undefined;
+    if (this.npcActor) {
+      const onShift = this.npcs.find((n) => n.on_shift);
+      if (
+        onShift &&
+        Math.hypot(this.pos.gx - WorldScene.NPC_SPOT.gx, this.pos.gy - WorldScene.NPC_SPOT.gy) < 2.2
+      ) {
+        this.nearNpcId = onShift.id;
+      }
+    }
+
     // nearest other player within cheers range (server re-verifies)
     this.nearPlayerId = undefined;
     let bestD = 2.2;
@@ -1535,6 +1699,8 @@ export class WorldScene extends Phaser.Scene {
       h = '📸 1-3 backdrop · SPACE shoot · ESC exit';
     } else if (this.nearCabinet) {
       h = this.coasterPanel ? '[E] close collection' : '[E] Coaster collection';
+    } else if (this.nearGacha) {
+      h = '[E] Gachapon — 25c a capsule';
     } else if (near) {
       const t = this.tableViews.get(near)!.table;
       h =
@@ -1547,11 +1713,25 @@ export class WorldScene extends Phaser.Scene {
       h = this.vendingPanel ? '[1-4] buy · [E] close' : '[E] Vending machine';
     } else if (this.nearBooth) {
       h = '[E] Photo booth';
+    } else if (
+      !this.offline &&
+      this.pos.gx >= 13 &&
+      this.pos.gy >= 7 &&
+      this.pos.gy <= 20
+    ) {
+      // §4 adapted: chilling in the bar zone earns passive XP server-side
+      h = '☕ chill zone — cozy XP ticks every minute · shifts on the Job board';
     }
     if (this.nearPlayerId && !this.photoMode) {
       const o = this.others.get(this.nearPlayerId);
       const name = o ? (o.c.list[1] as Phaser.GameObjects.Text).text : 'player';
       h = h ? `${h}  ·  [C] Cheers with ${name}` : `[C] Cheers with ${name} 🍻`;
+    }
+    if (this.nearNpcId && !this.photoMode) {
+      const n = this.npcs.find((x) => x.id === this.nearNpcId);
+      h = h
+        ? `${h}  ·  [T] Talk to ${n?.name ?? 'NPC'}`
+        : `[T] Talk to ${n?.name ?? 'NPC'} ☆ (Lv.${n?.heart_level ?? 0})`;
     }
     this.hint.setText(h);
   }

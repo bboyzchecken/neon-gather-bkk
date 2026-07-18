@@ -56,6 +56,64 @@ func (c *CheersLog) BeforeCreate(_ *gorm.DB) error {
 	return nil
 }
 
+// TastingStamp (Phase 2 §3): first time a player tried a menu. The passport
+// grows with player-created menus — no authored content needed.
+type TastingStamp struct {
+	ID           string    `gorm:"primaryKey;size:36" json:"id"`
+	PlayerID     string    `gorm:"size:36;not null;uniqueIndex:idx_tasting" json:"player_id"`
+	Player       *User     `gorm:"foreignKey:PlayerID" json:"-"`
+	MenuName     string    `gorm:"size:64;not null;uniqueIndex:idx_tasting" json:"menu_name"`
+	FirstTriedAt time.Time `json:"first_tried_at"`
+}
+
+func (t *TastingStamp) BeforeCreate(_ *gorm.DB) error {
+	if t.ID == "" {
+		t.ID = uuid.NewString()
+	}
+	if t.FirstTriedAt.IsZero() {
+		t.FirstTriedAt = time.Now()
+	}
+	return nil
+}
+
+// BartenderStory (Phase 2 §5): seeded story content the AutoServeBot tells.
+// Some stories only unlock late at night (server time).
+type BartenderStory struct {
+	ID            string `gorm:"primaryKey;size:36" json:"id"`
+	Code          string `gorm:"uniqueIndex;size:48;not null" json:"code"`
+	Title         string `gorm:"size:96;not null" json:"title"`
+	Body          string `gorm:"size:500;not null" json:"body"`
+	LateNightOnly bool   `gorm:"default:false" json:"late_night_only"`
+	SortOrder     int    `gorm:"default:0" json:"sort_order"`
+}
+
+func (b *BartenderStory) BeforeCreate(_ *gorm.DB) error {
+	if b.ID == "" {
+		b.ID = uuid.NewString()
+	}
+	return nil
+}
+
+// PlayerStory is one player's unlocked story (collectible log).
+type PlayerStory struct {
+	ID         string          `gorm:"primaryKey;size:36" json:"id"`
+	PlayerID   string          `gorm:"size:36;not null;uniqueIndex:idx_player_story" json:"player_id"`
+	Player     *User           `gorm:"foreignKey:PlayerID" json:"-"`
+	StoryID    string          `gorm:"size:36;not null;uniqueIndex:idx_player_story" json:"story_id"`
+	Story      *BartenderStory `gorm:"foreignKey:StoryID" json:"story,omitempty"`
+	UnlockedAt time.Time       `json:"unlocked_at"`
+}
+
+func (p *PlayerStory) BeforeCreate(_ *gorm.DB) error {
+	if p.ID == "" {
+		p.ID = uuid.NewString()
+	}
+	if p.UnlockedAt.IsZero() {
+		p.UnlockedAt = time.Now()
+	}
+	return nil
+}
+
 type SocialStore interface {
 	// BumpRegular increments (player, shop, menu) inside tx and returns the
 	// updated row (created on first order).
@@ -66,4 +124,14 @@ type SocialStore interface {
 	// BumpCheers increments the canonical pair inside tx and returns the row.
 	BumpCheers(tx *gorm.DB, aID, bID string) (*CheersLog, error)
 	ListCheersByPlayer(playerID string) ([]CheersLog, error)
+
+	// §3 tasting passport
+	StampTasting(playerID, menuName string) (bool, error)
+	ListStamps(playerID string) ([]TastingStamp, error)
+	CountDistinctMenus() (int64, error)
+
+	// §5 bartender stories
+	ListStories() ([]BartenderStory, error)
+	UnlockStory(playerID, storyID string) (bool, error)
+	ListPlayerStories(playerID string) ([]PlayerStory, error)
 }

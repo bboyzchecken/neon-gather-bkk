@@ -88,3 +88,47 @@ func (s *store) ListCheersByPlayer(playerID string) ([]models.CheersLog, error) 
 		Order("total_count desc").Find(&rows).Error
 	return rows, err
 }
+
+// StampTasting records the first taste of a menu (dup-safe via the unique
+// index). Returns whether this was a NEW stamp.
+func (s *store) StampTasting(playerID, menuName string) (bool, error) {
+	row := models.TastingStamp{PlayerID: playerID, MenuName: menuName}
+	res := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
+	return res.RowsAffected > 0, res.Error
+}
+
+func (s *store) ListStamps(playerID string) ([]models.TastingStamp, error) {
+	var rows []models.TastingStamp
+	err := s.db.Where("player_id = ?", playerID).Order("first_tried_at desc").Find(&rows).Error
+	return rows, err
+}
+
+// CountDistinctMenus: the passport target is every distinct DRINK/FOOD item
+// name players have created — the book grows with the economy by itself.
+func (s *store) CountDistinctMenus() (int64, error) {
+	var n int64
+	err := s.db.Model(&models.Item{}).
+		Where("category IN ?", []string{models.CategoryDrink, models.CategoryFood}).
+		Distinct("name").Count(&n).Error
+	return n, err
+}
+
+func (s *store) ListStories() ([]models.BartenderStory, error) {
+	var rows []models.BartenderStory
+	err := s.db.Order("sort_order").Find(&rows).Error
+	return rows, err
+}
+
+func (s *store) UnlockStory(playerID, storyID string) (bool, error) {
+	row := models.PlayerStory{PlayerID: playerID, StoryID: storyID}
+	res := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
+	return res.RowsAffected > 0, res.Error
+}
+
+func (s *store) ListPlayerStories(playerID string) ([]models.PlayerStory, error) {
+	var rows []models.PlayerStory
+	err := s.db.Preload("Story").
+		Where("player_id = ?", playerID).
+		Order("unlocked_at desc").Find(&rows).Error
+	return rows, err
+}

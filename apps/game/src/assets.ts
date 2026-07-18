@@ -23,6 +23,9 @@ export const TEXTURES: Record<string, string> = {
   cabinet: 'world/prop_cabinet_01.png',
   coaster_blank: 'coasters/coaster_blank_01.png',
   coaster_opening: 'coasters/coaster_opening_01.png',
+  sofa: 'world/prop_sofa_01.png',
+  rug: 'world/prop_rug_01.png',
+  gacha: 'world/prop_gacha_01.png',
 };
 
 /** Map a plot facade template to its texture key. */

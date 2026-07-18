@@ -68,6 +68,9 @@ const (
 	LedgerWageReceive = "WAGE_RECEIVE"
 	LedgerVendingBuy  = "VENDING_BUY"
 	LedgerVendingSell = "VENDING_SELL"
+	// Phase 2 §5 — gachapon (coin sink; duplicate rolls give a small refund)
+	LedgerGachaSpin = "GACHA_SPIN"
+	LedgerGachaDup  = "GACHA_DUP"
 )
 
 // Player job types (Phase 1 — adapted to live systems, see DECISIONS.md D1.1)
@@ -132,4 +135,6 @@ const (
 	EventVendingSold  = "VENDING_SOLD"
 	EventPhotoTaken   = "PHOTO_TAKEN"
 	EventCheers       = "CHEERS"
+	EventBarIdle      = "BAR_IDLE"   // §4: one relaxed minute at the bar (server ticker)
+	EventGachaSpin    = "GACHA_SPIN" // §5
 )
