@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import type { Item, User } from '@neon/shared-types';
+import type { Item, PlayerJob, QuestView, User } from '@neon/shared-types';
 import { api } from '../../lib/api';
 import { clearAuth, loadAuth } from '../../lib/auth';
 
@@ -13,14 +13,24 @@ export default function Dashboard() {
   const [me, setMe] = useState<User | null>(null);
   const [inv, setInv] = useState<Item[]>([]);
   const [market, setMarket] = useState<Item[]>([]);
+  const [jobs, setJobs] = useState<PlayerJob[]>([]);
+  const [quests, setQuests] = useState<QuestView[]>([]);
   const [err, setErr] = useState('');
 
   const refresh = useCallback(async (t: string) => {
     try {
-      const [u, i, m] = await Promise.all([api.me(t), api.inventory(t), api.market(t)]);
+      const [u, i, m, j, q] = await Promise.all([
+        api.me(t),
+        api.inventory(t),
+        api.market(t),
+        api.jobs(t).catch(() => [] as PlayerJob[]),
+        api.quests(t).catch(() => [] as QuestView[]),
+      ]);
       setMe(u);
       setInv(i);
       setMarket(m);
+      setJobs(j);
+      setQuests(q);
     } catch (ex) {
       setErr((ex as Error).message);
     }
@@ -63,6 +73,12 @@ export default function Dashboard() {
         </div>
         <div className="row">
           <span className="coins">💰 {me.coins}</span>
+          <Link href="/jobs">
+            <button className="secondary">💼 Jobs</button>
+          </Link>
+          <Link href="/album">
+            <button className="secondary">📸 Album</button>
+          </Link>
           <Link href="/play">
             <button>Enter the Avenue</button>
           </Link>
@@ -82,6 +98,87 @@ export default function Dashboard() {
         {me.is_guest ? ' (guest)' : ''}
       </p>
       {err && <div className="error">{err}</div>}
+
+      {jobs.length > 0 && (
+        <div className="card">
+          <h3>Jobs & levels</h3>
+          <div className="grid">
+            {jobs.map((j) => {
+              const base = j.level > 1 ? 50 * j.level * (j.level - 1) : 0;
+              const span = j.xp_for_next > base ? j.xp_for_next - base : 1;
+              const pct =
+                j.xp_for_next === 0 ? 100 : Math.min(100, Math.round(((j.xp - base) / span) * 100));
+              return (
+                <div className="item" key={j.job_type}>
+                  <div className="spread">
+                    <b>{j.job_type}</b>
+                    <span className="pill">Lv.{j.level}</span>
+                  </div>
+                  <div
+                    style={{
+                      background: '#22343f',
+                      borderRadius: 6,
+                      height: 8,
+                      margin: '8px 0',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${pct}%`,
+                        height: '100%',
+                        background: '#c97f56',
+                        borderRadius: 6,
+                      }}
+                    />
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {j.xp} XP{j.xp_for_next > 0 ? ` · next at ${j.xp_for_next}` : ' · MAX'}
+                    {j.unlocked_perks.length > 0 &&
+                      ` · perks: ${j.unlocked_perks.map((p) => p.name).join(', ')}`}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {quests.length > 0 && (
+        <div className="card">
+          <h3>Quests</h3>
+          {quests.map((q) => {
+            const progress = q.type === 'COMMUNITY' ? (q.community_progress ?? 0) : q.progress;
+            const communityDone = q.type === 'COMMUNITY' && progress >= q.target && q.progress > 0;
+            const claimable =
+              q.status === 'COMPLETED' || (communityDone && q.status !== 'CLAIMED');
+            return (
+              <div
+                className="spread"
+                key={`${q.id}-${q.period_key}`}
+                style={{ borderTop: '1px solid #2a3f4d', padding: '8px 0' }}
+              >
+                <span>
+                  <span className="pill">{q.type}</span> <b>{q.title}</b>{' '}
+                  <span className="muted">
+                    · {Math.min(progress, q.target)}/{q.target}
+                    {q.reward_coins > 0 ? ` · reward ${q.reward_coins}c` : ''}
+                  </span>
+                </span>
+                {q.status === 'CLAIMED' ? (
+                  <span className="muted">claimed ✔</span>
+                ) : claimable ? (
+                  <button className="gold" onClick={() => act(() => api.claimQuest(token!, q.id))}>
+                    Claim
+                  </button>
+                ) : (
+                  <span className="muted">{q.type === 'COMMUNITY' ? 'community goal' : 'in progress'}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="card">
         <h3>Your inventory ({inv.length})</h3>

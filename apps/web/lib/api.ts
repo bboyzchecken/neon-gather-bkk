@@ -1,6 +1,20 @@
-import type { AuthResponse, Item, User, VendorSellResult } from '@neon/shared-types';
+import type {
+  AuthResponse,
+  EmploymentView,
+  Item,
+  JobPostingView,
+  PhotoView,
+  PlayerJob,
+  Plot,
+  QuestView,
+  SharedPhotoView,
+  StaffReviewView,
+  User,
+  VendorSellResult,
+} from '@neon/shared-types';
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+// Dev default is 5001: macOS AirPlay (ControlCenter) squats on port 5000.
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 export const GAME_URL = process.env.NEXT_PUBLIC_GAME_URL || 'http://localhost:5173';
 
 async function req<T>(path: string, opts: RequestInit = {}, token?: string): Promise<T> {
@@ -38,4 +52,49 @@ export const api = {
     req<Item>(`/marketplace/${id}/unlist`, { method: 'POST' }, token),
   vendorSell: (token: string, id: string) =>
     req<VendorSellResult>(`/items/${id}/vendor-sell`, { method: 'POST' }, token),
+
+  // ---- Phase 1 ----
+  jobs: (token: string) => req<PlayerJob[]>('/jobs/mine', {}, token),
+  quests: (token: string) => req<QuestView[]>('/quests', {}, token),
+  claimQuest: (token: string, id: string) =>
+    req<{ claimed: boolean; reward_coins: number; balance: number }>(
+      `/quests/${id}/claim`,
+      { method: 'POST' },
+      token,
+    ),
+
+  plots: (token: string) => req<Plot[]>('/plots', {}, token),
+  postings: (token: string) => req<JobPostingView[]>('/staff/postings', {}, token),
+  createPosting: (
+    token: string,
+    body: { plot_id: string; title: string; description: string; wage_per_task: number },
+  ) => req<JobPostingView>('/staff/postings', { method: 'POST', body: JSON.stringify(body) }, token),
+  closePosting: (token: string, id: string) =>
+    req<JobPostingView>(`/staff/postings/${id}/close`, { method: 'POST' }, token),
+  apply: (token: string, postingId: string) =>
+    req<EmploymentView>(`/staff/postings/${postingId}/apply`, { method: 'POST' }, token),
+  applications: (token: string, postingId: string) =>
+    req<EmploymentView[]>(`/staff/postings/${postingId}/applications`, {}, token),
+  myEmployments: (token: string) => req<EmploymentView[]>('/staff/employments/mine', {}, token),
+  hire: (token: string, employmentId: string) =>
+    req<EmploymentView>(`/staff/employments/${employmentId}/hire`, { method: 'POST' }, token),
+  endEmployment: (token: string, employmentId: string) =>
+    req<EmploymentView>(`/staff/employments/${employmentId}/end`, { method: 'POST' }, token),
+  tip: (token: string, employmentId: string, amount: number) =>
+    req<{ tipped: number }>(
+      `/staff/employments/${employmentId}/tip`,
+      { method: 'POST', body: JSON.stringify({ amount }) },
+      token,
+    ),
+  review: (token: string, employmentId: string, stars: number, comment: string) =>
+    req<StaffReviewView>(
+      `/staff/employments/${employmentId}/review`,
+      { method: 'POST', body: JSON.stringify({ stars, comment }) },
+      token,
+    ),
+
+  myPhotos: (token: string) => req<PhotoView[]>('/photos/mine', {}, token),
+  deletePhoto: (token: string, id: string) =>
+    req<{ deleted: boolean }>(`/photos/${id}`, { method: 'DELETE' }, token),
+  sharedPhoto: (tokenParam: string) => req<SharedPhotoView>(`/share/photos/${tokenParam}`),
 };
