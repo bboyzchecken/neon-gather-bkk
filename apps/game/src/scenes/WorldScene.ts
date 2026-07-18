@@ -3,14 +3,17 @@ import type {
   Direction,
   PlayerState,
   Plot,
+  QuestView,
   ServerMessage,
   TableView,
   User,
+  VendingMachineView,
 } from '@neon/shared-types';
 import { facadeKey } from '../assets';
 import { COLS, ROWS, SPEED_TILES, TILE_H, TILE_W, WORLD_H, WORLD_W, isoPos } from '../config';
 import { api } from '../net/api';
 import { connectWorld, type WorldSocket } from '../net/socket';
+import { findPath, type Cell } from '../pathfind';
 
 interface PlotView {
   plot: Plot;
@@ -63,6 +66,38 @@ const DEMO_TABLES: TableView[] = (['EMPTY', 'ORDERED', 'SERVED', 'COLLECTED'] as
   }),
 );
 
+/** Offline preview vending machine (mirrors the seeder). */
+const DEMO_VENDING: VendingMachineView[] = [
+  {
+    id: 'demo-v',
+    code: 'V-01',
+    plot_id: null,
+    owner_id: 'npc',
+    owner_name: 'Avenue Market',
+    grid_x: 18,
+    grid_y: 16,
+    slots: [
+      { id: 'demo-s1', item_name: 'Iced Thai Tea', category: 'DRINK', thumbnail_url: null, price: 30, stock: 10 },
+      { id: 'demo-s2', item_name: 'Cold Brew Coffee', category: 'DRINK', thumbnail_url: null, price: 40, stock: 10 },
+      { id: 'demo-s3', item_name: 'Mango Smoothie', category: 'DRINK', thumbnail_url: null, price: 50, stock: 8 },
+      { id: 'demo-s4', item_name: 'Slice of Cake', category: 'FOOD', thumbnail_url: null, price: 35, stock: 6 },
+    ],
+  },
+];
+
+/** Photo-booth placement (2×2 tiles per the Art & Grid Standards). */
+const BOOTH = { gx: 20, gy: 18, w: 2, h: 2 };
+
+/** AutoServeBot home position (beside the bar counter). */
+const BOT_HOME: Cell = { gx: 14, gy: 17 };
+const BOT_SPEED_TILES = 2.6;
+
+const PHOTO_BACKDROPS: Array<{ name: string; color: number }> = [
+  { name: 'cream', color: 0xf2e3c8 },
+  { name: 'teal', color: 0x2f6f6a },
+  { name: 'terracotta', color: 0xc97f56 },
+];
+
 export class WorldScene extends Phaser.Scene {
   private me!: User;
   private token = '';
@@ -90,6 +125,24 @@ export class WorldScene extends Phaser.Scene {
   private nearTableId?: string;
   private busy = false;
 
+  // ---- Phase 1 state ----
+  private vendingViews = new Map<string, { m: VendingMachineView; sprite?: Phaser.GameObjects.Image }>();
+  private nearMachineId?: string;
+  private vendingPanel?: Phaser.GameObjects.Container;
+  private nearBooth = false;
+  private photoMode = false;
+  private photoBackdropIdx = 0;
+  private photoBackdrop?: Phaser.GameObjects.Rectangle;
+  private quests: QuestView[] = [];
+  private questPanel?: Phaser.GameObjects.Container;
+  private questPanelVisible = true;
+  private blockedTiles = new Set<number>();
+  private bot?: Phaser.GameObjects.Container;
+  private botPos: Cell = { ...BOT_HOME };
+  private botPath: Cell[] = [];
+  private botState: 'idle' | 'serving' | 'cleaning' | 'returning' = 'idle';
+  private botQueue: Array<{ target: Cell; kind: 'serving' | 'cleaning' }> = [];
+
   constructor() {
     super('World');
   }
@@ -111,12 +164,21 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
     this.cameras.main.startFollow(this.avatar, true, 0.1, 0.1);
 
+    this.placePhotoBooth();
+    this.createBot();
+    this.createQuestPanel();
+
     if (this.offline) {
       DEMO_PLOTS.forEach((p) => this.drawPlot(p));
       DEMO_TABLES.forEach((t) => this.upsertTable(t));
+      DEMO_VENDING.forEach((m) => this.upsertVending(m));
+      // let the bot demo its serve/clean walk on the preview tables
+      DEMO_TABLES.forEach((t) => this.onTableForBot(t));
       this.toast('Offline preview — start the API for full play', 0x8a5a2b);
     } else {
       void this.loadPlots();
+      void this.loadVending();
+      void this.loadQuests();
       this.connectSocket();
     }
     this.events.once('shutdown', () => this.ws?.close());
@@ -259,7 +321,7 @@ export class WorldScene extends Phaser.Scene {
   private updateHud(): void {
     const mode = this.offline ? '  ·  OFFLINE PREVIEW' : '';
     this.hud.setText(
-      `${this.me.display_name}   💰 ${this.coins}${mode}\nWASD/Arrows move · click plot to rent · [E] order/collect at tables`,
+      `${this.me.display_name}   💰 ${this.coins}${mode}\nWASD/Arrows move · click plot to rent · [E] tables/vending/booth · [Q] quests`,
     );
   }
 
@@ -279,7 +341,26 @@ export class WorldScene extends Phaser.Scene {
     const kb = this.input.keyboard!;
     this.cursors = kb.createCursorKeys();
     this.keys = kb.addKeys('W,A,S,D') as Record<string, Phaser.Input.Keyboard.Key>;
-    kb.on('keydown-E', () => void this.onInteractTable());
+    kb.on('keydown-E', () => void this.onInteract());
+    kb.on('keydown-Q', () => this.toggleQuestPanel());
+    kb.on('keydown-ESC', () => this.exitPhotoMode());
+    kb.on('keydown-SPACE', () => void this.onCapturePhoto());
+    for (let n = 1; n <= 4; n++) {
+      kb.on(`keydown-${'ONE TWO THREE FOUR'.split(' ')[n - 1]}`, () => void this.onDigit(n));
+    }
+  }
+
+  private async onDigit(n: number): Promise<void> {
+    if (this.photoMode) {
+      if (n <= PHOTO_BACKDROPS.length) {
+        this.photoBackdropIdx = n - 1;
+        this.photoBackdrop?.setFillStyle(PHOTO_BACKDROPS[this.photoBackdropIdx].color);
+      }
+      return;
+    }
+    if (this.vendingPanel && this.nearMachineId) {
+      await this.onBuyVending(n - 1);
+    }
   }
 
   // ---------- plots ----------
@@ -302,6 +383,13 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private drawPlot(p: Plot): void {
+    // plot tiles are impassable for the AutoServeBot's A* (walks around shops)
+    for (let gy = p.grid_y; gy < p.grid_y + p.height_tiles; gy++) {
+      for (let gx = p.grid_x; gx < p.grid_x + p.width_tiles; gx++) {
+        this.blockedTiles.add(gy * COLS + gx);
+      }
+    }
+
     // plot floor: teak when rented, concrete when vacant
     this.blitPlotFloor(p);
 
@@ -441,6 +529,36 @@ export class WorldScene extends Phaser.Scene {
         break;
       case 'table_updated':
         this.upsertTable(msg.table);
+        this.onTableForBot(msg.table);
+        break;
+      case 'job_level_up':
+        this.toast(`🎉 ${msg.job_type} reached Lv.${msg.level}!`, 0x2ea36a);
+        break;
+      case 'quest_completed':
+        this.toast(`Quest complete: ${msg.title} — claim on the dashboard`, 0x2ea36a);
+        void this.loadQuests();
+        break;
+      case 'order_alert':
+        this.toast(`🛎 New order at ${msg.table_code} (your shift)`, 0xc9a227);
+        break;
+      case 'staff_hired':
+        this.toast('You got the job! 🎉', 0x2ea36a);
+        break;
+      case 'tip_received':
+        this.coins += msg.amount;
+        this.updateHud();
+        this.toast(`💝 Tip received: +${msg.amount}`, 0x2ea36a);
+        break;
+      case 'wage_paid':
+        this.coins += msg.amount;
+        this.updateHud();
+        this.toast(`💼 Wage +${msg.amount} (${msg.table_code})`, 0x2ea36a);
+        break;
+      case 'vending_updated':
+        this.applyVendingStock(msg.machine_id, msg.slot_id, msg.stock);
+        break;
+      case 'vending_low_stock':
+        this.toast(`⚠ ${msg.item_name} almost out of stock (${msg.stock} left)`, 0xcc8844);
         break;
     }
   }
@@ -522,6 +640,19 @@ export class WorldScene extends Phaser.Scene {
   }
 
   // ---------- actions ----------
+  private async onInteract(): Promise<void> {
+    if (this.photoMode) return; // SPACE captures, ESC exits
+    if (this.nearBooth) {
+      this.enterPhotoMode();
+      return;
+    }
+    if (this.nearMachineId) {
+      this.toggleVendingPanel();
+      return;
+    }
+    await this.onInteractTable();
+  }
+
   private async onInteractTable(): Promise<void> {
     if (this.busy || !this.nearTableId) return;
     if (this.offline) {
@@ -544,6 +675,411 @@ export class WorldScene extends Phaser.Scene {
     } finally {
       this.busy = false;
     }
+  }
+
+  // ---------- Phase 1: vending machines ----------
+  private async loadVending(): Promise<void> {
+    try {
+      const machines = await api.vending();
+      machines.forEach((m) => this.upsertVending(m));
+    } catch {
+      /* vending list is non-critical */
+    }
+  }
+
+  private upsertVending(m: VendingMachineView): void {
+    let v = this.vendingViews.get(m.id);
+    if (!v) {
+      let sprite: Phaser.GameObjects.Image | undefined;
+      const c = isoPos(m.grid_x + 0.5, m.grid_y + 0.5);
+      const anchorY = c.y + TILE_H * 0.35;
+      if (this.tex('vending')) {
+        sprite = this.add.image(c.x, anchorY, 'vending').setOrigin(0.5, 1).setDepth(anchorY);
+        // 1-tile footprint, ~150px tall per the grid standards
+        const w = TILE_W * 0.85;
+        sprite.setDisplaySize(w, (w * sprite.height) / sprite.width);
+      }
+      this.add
+        .text(c.x, anchorY - (sprite?.displayHeight ?? 150) - 12, `${m.code} · vending`, {
+          color: '#ffffff',
+          fontSize: '12px',
+          backgroundColor: '#00000099',
+          padding: { x: 4, y: 1 },
+        })
+        .setOrigin(0.5)
+        .setDepth(9000);
+      v = { m, sprite };
+      this.vendingViews.set(m.id, v);
+    }
+    v.m = m;
+    this.refreshVendingPanel();
+  }
+
+  private applyVendingStock(machineId: string, slotId: string, stock: number): void {
+    const v = this.vendingViews.get(machineId);
+    if (!v) return;
+    const slot = v.m.slots.find((s) => s.id === slotId);
+    if (slot) slot.stock = stock;
+    this.refreshVendingPanel();
+  }
+
+  private toggleVendingPanel(): void {
+    if (this.vendingPanel) {
+      this.closeVendingPanel();
+    } else {
+      this.refreshVendingPanel(true);
+    }
+  }
+
+  private closeVendingPanel(): void {
+    this.vendingPanel?.destroy();
+    this.vendingPanel = undefined;
+  }
+
+  private refreshVendingPanel(open = false): void {
+    if (!this.vendingPanel && !open) return;
+    if (!this.nearMachineId) return;
+    const v = this.vendingViews.get(this.nearMachineId);
+    if (!v) return;
+    this.closeVendingPanel();
+
+    const lines = v.m.slots.map(
+      (s, i) => `[${i + 1}] ${s.item_name}  ·  ${s.price}c  ·  ${s.stock > 0 ? `${s.stock} left` : 'SOLD OUT'}`,
+    );
+    const w = 300;
+    const h = 62 + lines.length * 22;
+    const g = this.add.graphics();
+    g.fillStyle(0xf5ead7, 0.97);
+    g.lineStyle(3, 0x1e3d34, 1);
+    g.fillRoundedRect(0, 0, w, h, 12);
+    g.strokeRoundedRect(0, 0, w, h, 12);
+    const title = this.add.text(14, 10, `${v.m.code} — Vending`, {
+      color: '#1e3d34',
+      fontSize: '15px',
+      fontStyle: 'bold',
+    });
+    const items = this.add.text(14, 38, lines.join('\n'), {
+      color: '#41372a',
+      fontSize: '13px',
+      lineSpacing: 8,
+    });
+    const foot = this.add.text(14, h - 20, 'press 1-4 to buy · [E] close', {
+      color: '#8a5a2b',
+      fontSize: '11px',
+    });
+    this.vendingPanel = this.add
+      .container(this.scale.width / 2 - w / 2, this.scale.height - h - 76, [g, title, items, foot])
+      .setScrollFactor(0)
+      .setDepth(10001);
+  }
+
+  private async onBuyVending(slotIdx: number): Promise<void> {
+    if (this.busy || !this.nearMachineId) return;
+    const v = this.vendingViews.get(this.nearMachineId);
+    if (!v || slotIdx >= v.m.slots.length) return;
+    const slot = v.m.slots[slotIdx];
+    if (this.offline) {
+      this.toast('Offline preview — buying needs the API', 0xcc8844);
+      return;
+    }
+    if (slot.stock <= 0) {
+      this.toast('Sold out', 0xcc8844);
+      return;
+    }
+    if (this.coins < slot.price) {
+      this.toast('Not enough coins', 0xcc4444);
+      return;
+    }
+    this.busy = true;
+    try {
+      const res = await api.vendingBuy(slot.id);
+      slot.stock = res.stock;
+      this.coins -= slot.price;
+      this.updateHud();
+      this.refreshVendingPanel();
+      this.playVendingDrop(v.m);
+      this.toast(`${slot.item_name} — got it! (-${slot.price})`);
+    } catch (err) {
+      this.toast((err as Error).message, 0xcc4444);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** Little "item drops out of the machine" animation. */
+  private playVendingDrop(m: VendingMachineView): void {
+    const c = isoPos(m.grid_x + 0.5, m.grid_y + 0.5);
+    const startY = c.y + TILE_H * 0.35 - 90;
+    const item = this.add
+      .text(c.x, startY, '🥤', { fontSize: '22px' })
+      .setOrigin(0.5)
+      .setDepth(9500);
+    this.tweens.add({
+      targets: item,
+      y: c.y + TILE_H * 0.3,
+      duration: 420,
+      ease: 'Bounce.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: item,
+          alpha: 0,
+          y: item.y - 26,
+          delay: 320,
+          duration: 380,
+          onComplete: () => item.destroy(),
+        });
+      },
+    });
+  }
+
+  // ---------- Phase 1: photo booth ----------
+  private placePhotoBooth(): void {
+    const cx = isoPos(BOOTH.gx + BOOTH.w / 2, BOOTH.gy + BOOTH.h / 2);
+    const anchorY = cx.y + TILE_H * 0.7;
+    if (this.tex('photobooth')) {
+      const img = this.add.image(cx.x, anchorY, 'photobooth').setOrigin(0.5, 1).setDepth(anchorY);
+      // 2×2-tile footprint, ~200px tall per the grid standards
+      const w = TILE_W * 1.7;
+      img.setDisplaySize(w, (w * img.height) / img.width);
+    }
+    this.add
+      .text(cx.x, anchorY + 8, '📸 photo booth', {
+        color: '#ffffff',
+        fontSize: '12px',
+        backgroundColor: '#00000099',
+        padding: { x: 4, y: 1 },
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(9000);
+  }
+
+  private boothCenter(): { x: number; y: number } {
+    return isoPos(BOOTH.gx + BOOTH.w / 2, BOOTH.gy + BOOTH.h / 2);
+  }
+
+  private enterPhotoMode(): void {
+    if (this.photoMode) return;
+    this.photoMode = true;
+    const c = this.boothCenter();
+    this.photoBackdrop = this.add
+      .rectangle(c.x, c.y - 40, 360, 250, PHOTO_BACKDROPS[this.photoBackdropIdx].color)
+      .setStrokeStyle(6, 0x1e3d34)
+      .setDepth(c.y - 200)
+      .setAlpha(0.96);
+    this.toast('Photo mode: 1-3 backdrop · SPACE shoot · ESC exit', 0x2f6f6a);
+  }
+
+  private exitPhotoMode(): void {
+    if (!this.photoMode) return;
+    this.photoMode = false;
+    this.photoBackdrop?.destroy();
+    this.photoBackdrop = undefined;
+  }
+
+  private async onCapturePhoto(): Promise<void> {
+    if (!this.photoMode || this.busy) return;
+    if (this.offline) {
+      this.toast('Offline preview — photos need the API', 0xcc8844);
+      return;
+    }
+    this.busy = true;
+    // hide chrome so the shot is clean
+    const chrome = [this.hud, this.hint, this.toastText, this.questPanel].filter(Boolean);
+    chrome.forEach((o) => (o as Phaser.GameObjects.Container).setVisible(false));
+    try {
+      const cam = this.cameras.main;
+      const c = this.boothCenter();
+      const w = 420;
+      const h = 320;
+      const sx = Phaser.Math.Clamp(c.x - cam.scrollX - w / 2, 0, Math.max(0, this.scale.width - w));
+      const sy = Phaser.Math.Clamp(c.y - 60 - cam.scrollY - h / 2, 0, Math.max(0, this.scale.height - h));
+      const blob = await this.snapshotBlob(sx, sy, w, h);
+      const photo = await api.uploadPhoto(blob, PHOTO_BACKDROPS[this.photoBackdropIdx].name, '');
+      this.toast(`📸 Saved to your album! (share: …${photo.share_token.slice(-6)})`, 0x2ea36a);
+      this.exitPhotoMode();
+    } catch (err) {
+      this.toast((err as Error).message, 0xcc4444);
+    } finally {
+      chrome.forEach((o) => (o as Phaser.GameObjects.Container).setVisible(true));
+      if (this.questPanel) this.questPanel.setVisible(this.questPanelVisible);
+      this.busy = false;
+    }
+  }
+
+  /** Canvas-renderer snapshot of a screen region -> PNG blob. */
+  private snapshotBlob(x: number, y: number, w: number, h: number): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      this.game.renderer.snapshotArea(x, y, w, h, (img) => {
+        const el = img as HTMLImageElement;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('no 2d context'));
+          return;
+        }
+        ctx.drawImage(el, 0, 0);
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('snapshot failed'))), 'image/png');
+      });
+    });
+  }
+
+  // ---------- Phase 1: quest tracker ----------
+  private async loadQuests(): Promise<void> {
+    try {
+      this.quests = await api.quests();
+      this.redrawQuestPanel();
+    } catch {
+      /* quests are non-critical for rendering */
+    }
+  }
+
+  private createQuestPanel(): void {
+    this.redrawQuestPanel();
+  }
+
+  private toggleQuestPanel(): void {
+    this.questPanelVisible = !this.questPanelVisible;
+    this.questPanel?.setVisible(this.questPanelVisible);
+  }
+
+  /** Rounded warm-cream card per the TECH-UI spec (soft shadow, green outline). */
+  private redrawQuestPanel(): void {
+    this.questPanel?.destroy();
+    const shown = this.quests
+      .filter((q) => q.status !== 'CLAIMED')
+      .sort((a, b) => (a.status === 'COMPLETED' ? -1 : 0) - (b.status === 'COMPLETED' ? -1 : 0))
+      .slice(0, 4);
+    const w = 280;
+    const rowH = 46;
+    const h = 40 + Math.max(shown.length, 1) * rowH;
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.18); // soft shadow
+    g.fillRoundedRect(4, 6, w, h, 14);
+    g.fillStyle(0xf5ead7, 0.96);
+    g.lineStyle(3, 0x1e3d34, 1);
+    g.fillRoundedRect(0, 0, w, h, 14);
+    g.strokeRoundedRect(0, 0, w, h, 14);
+    const parts: Phaser.GameObjects.GameObject[] = [g];
+    parts.push(
+      this.add.text(14, 10, 'Quests  ·  [Q] hide', {
+        color: '#1e3d34',
+        fontSize: '14px',
+        fontStyle: 'bold',
+      }),
+    );
+    if (shown.length === 0) {
+      parts.push(
+        this.add.text(14, 40, this.offline ? 'offline preview' : 'all clear! 🎉', {
+          color: '#8a5a2b',
+          fontSize: '12px',
+        }),
+      );
+    }
+    shown.forEach((q, i) => {
+      const y = 36 + i * rowH;
+      const progress = q.type === 'COMMUNITY' ? (q.community_progress ?? 0) : q.progress;
+      const done = q.status === 'COMPLETED';
+      parts.push(
+        this.add.text(14, y, `${done ? '✔ ' : ''}${q.title}`, {
+          color: done ? '#2ea36a' : '#41372a',
+          fontSize: '12px',
+          fontStyle: done ? 'bold' : 'normal',
+        }),
+      );
+      // thin progress bar
+      const barW = w - 28;
+      const pct = Math.min(1, progress / Math.max(1, q.target));
+      const bar = this.add.graphics();
+      bar.fillStyle(0xd9c9a8, 1);
+      bar.fillRoundedRect(14, y + 20, barW, 7, 4);
+      bar.fillStyle(done ? 0x2ea36a : 0xc97f56, 1);
+      if (pct > 0) bar.fillRoundedRect(14, y + 20, Math.max(8, barW * pct), 7, 4);
+      parts.push(bar);
+      parts.push(
+        this.add
+          .text(w - 14, y, `${Math.min(progress, q.target)}/${q.target}`, {
+            color: '#8a5a2b',
+            fontSize: '11px',
+          })
+          .setOrigin(1, 0),
+      );
+    });
+    this.questPanel = this.add
+      .container(this.scale.width - w - 14, 14, parts)
+      .setScrollFactor(0)
+      .setDepth(10000)
+      .setVisible(this.questPanelVisible);
+    this.scale.on('resize', () => this.questPanel?.setX(this.scale.width - w - 14));
+  }
+
+  // ---------- Phase 1: AutoServeBot (visible worker, grid A*) ----------
+  private createBot(): void {
+    const body = this.add.rectangle(0, 0, 26, 34, 0x2f6f6a).setStrokeStyle(2, 0x0b1a22);
+    const apron = this.add.rectangle(0, 8, 20, 14, 0xf2e3c8).setStrokeStyle(1, 0x0b1a22);
+    const label = this.add
+      .text(0, -30, 'AutoServeBot', { color: '#c8f7e2', fontSize: '11px' })
+      .setOrigin(0.5);
+    this.bot = this.add.container(0, 0, [body, apron, label]);
+    const p = isoPos(this.botPos.gx + 0.5, this.botPos.gy + 0.5);
+    this.bot.setPosition(p.x, p.y).setDepth(p.y);
+  }
+
+  /** React to table changes: walk to ORDERED tables (serve) and COLLECTED
+   * tables (clean). State itself stays fully server-authoritative — the bot
+   * you see is the visual worker for what the server already decided. */
+  private onTableForBot(t: TableView): void {
+    if (t.state !== 'ORDERED' && t.state !== 'COLLECTED') return;
+    const target: Cell = { gx: t.grid_x, gy: t.grid_y + 1 }; // stand just below the table
+    const kind = t.state === 'ORDERED' ? 'serving' : 'cleaning';
+    // drop stale queued trips to the same table
+    this.botQueue = this.botQueue.filter((j) => j.target.gx !== target.gx || j.target.gy !== target.gy);
+    this.botQueue.push({ target, kind });
+    if (this.botState === 'idle' || this.botState === 'returning') this.nextBotJob();
+  }
+
+  private nextBotJob(): void {
+    const job = this.botQueue.shift();
+    if (!job) {
+      // head home
+      this.botPath = findPath(COLS, ROWS, this.blockedTiles, this.botPos, BOT_HOME);
+      this.botState = this.botPath.length > 0 ? 'returning' : 'idle';
+      return;
+    }
+    this.botPath = findPath(COLS, ROWS, this.blockedTiles, this.botPos, job.target);
+    this.botState = this.botPath.length > 0 ? job.kind : 'idle';
+  }
+
+  private stepBot(dt: number): void {
+    if (!this.bot) return;
+    if (this.botPath.length === 0) {
+      if (this.botState === 'returning') this.botState = 'idle';
+      else if (this.botState !== 'idle') {
+        // arrived at a table — brief pause, then next job
+        this.botState = 'idle';
+        this.time.delayedCall(600, () => this.nextBotJob());
+      }
+      return;
+    }
+    const next = this.botPath[0];
+    const tx = next.gx + 0.5;
+    const ty = next.gy + 0.5;
+    const dx = tx - (this.botPos.gx + 0.5);
+    const dy = ty - (this.botPos.gy + 0.5);
+    const dist = Math.hypot(dx, dy);
+    const step = BOT_SPEED_TILES * dt;
+    if (dist <= step) {
+      this.botPos = { gx: next.gx, gy: next.gy };
+      this.botPath.shift();
+    } else {
+      this.botPos = {
+        gx: this.botPos.gx + (dx / dist) * step,
+        gy: this.botPos.gy + (dy / dist) * step,
+      };
+    }
+    const p = isoPos(this.botPos.gx + 0.5, this.botPos.gy + 0.5);
+    this.bot.setPosition(p.x, p.y).setDepth(p.y);
   }
 
   // ---------- loop ----------
@@ -578,6 +1114,7 @@ export class WorldScene extends Phaser.Scene {
         this.ws?.sendMove(this.pos.gx, this.pos.gy, this.dir);
       }
     }
+    this.stepBot(dt);
     this.updateProximity();
   }
 
@@ -592,8 +1129,25 @@ export class WorldScene extends Phaser.Scene {
     });
     this.nearTableId = near;
 
+    let nearMachine: string | undefined;
+    this.vendingViews.forEach((v) => {
+      const d = Math.hypot(
+        this.pos.gx - (v.m.grid_x + 0.5),
+        this.pos.gy - (v.m.grid_y + 0.5),
+      );
+      if (d < 1.7) nearMachine = v.m.id;
+    });
+    if (this.nearMachineId && nearMachine !== this.nearMachineId) this.closeVendingPanel();
+    this.nearMachineId = nearMachine;
+
+    const bc = { x: BOOTH.gx + BOOTH.w / 2, y: BOOTH.gy + BOOTH.h / 2 };
+    this.nearBooth = Math.hypot(this.pos.gx - bc.x, this.pos.gy - bc.y) < 2.2;
+    if (!this.nearBooth && this.photoMode) this.exitPhotoMode();
+
     let h = '';
-    if (near) {
+    if (this.photoMode) {
+      h = '📸 1-3 backdrop · SPACE shoot · ESC exit';
+    } else if (near) {
       const t = this.tableViews.get(near)!.table;
       h =
         t.state === 'EMPTY'
@@ -601,6 +1155,10 @@ export class WorldScene extends Phaser.Scene {
           : t.state === 'SERVED'
             ? `[E] Collect ${t.code}`
             : `${t.code}: ${t.state.toLowerCase()}…`;
+    } else if (nearMachine) {
+      h = this.vendingPanel ? '[1-4] buy · [E] close' : '[E] Vending machine';
+    } else if (this.nearBooth) {
+      h = '[E] Photo booth';
     }
     this.hint.setText(h);
   }

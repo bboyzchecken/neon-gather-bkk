@@ -16,6 +16,9 @@ export const TEXTURES: Record<string, string> = {
   floor_terracotta: 'floors/env_floor_terracotta_01.png',
   floor_teak: 'floors/env_floor_teak_01.png',
   floor_concrete: 'floors/env_floor_concrete_01.png',
+  // Phase 1 props
+  vending: 'world/prop_vending_01.png',
+  photobooth: 'world/prop_photobooth_01.png',
 };
 
 /** Map a plot facade template to its texture key. */

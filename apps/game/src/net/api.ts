@@ -1,4 +1,12 @@
-import type { Plot, TableView, User } from '@neon/shared-types';
+import type {
+  PhotoView,
+  PlayerJob,
+  Plot,
+  QuestView,
+  TableView,
+  User,
+  VendingMachineView,
+} from '@neon/shared-types';
 import { API_URL } from '../config';
 
 let accessToken = '';
@@ -34,4 +42,28 @@ export const api = {
   tables: () => req<TableView[]>('/tables'),
   order: (id: string) => req<TableView>(`/tables/${id}/order`, { method: 'POST', body: '{}' }),
   collect: (id: string) => req<TableView>(`/tables/${id}/collect`, { method: 'POST' }),
+  // Phase 1
+  jobs: () => req<PlayerJob[]>('/jobs/mine'),
+  quests: () => req<QuestView[]>('/quests'),
+  vending: () => req<VendingMachineView[]>('/vending'),
+  vendingBuy: (slotId: string) =>
+    req<{ item: unknown; stock: number }>(`/vending/slots/${slotId}/buy`, { method: 'POST' }),
+  uploadPhoto: async (blob: Blob, background: string, caption: string): Promise<PhotoView> => {
+    const form = new FormData();
+    form.append('file', blob, 'photo.png');
+    form.append('background', background);
+    form.append('caption', caption);
+    const res = await fetch(API_URL + '/photos', {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({ error: res.statusText }))) as {
+        error?: string;
+      };
+      throw new Error(body.error ?? 'upload failed');
+    }
+    return (await res.json()) as PhotoView;
+  },
 };

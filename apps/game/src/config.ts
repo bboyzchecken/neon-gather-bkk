@@ -1,5 +1,6 @@
+// Dev default is 5001: macOS AirPlay (ControlCenter) squats on port 5000.
 export const API_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:5000';
+  (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:5001';
 
 // Locked Art & Grid Standards: isometric 2:1, base tile 128×64 px.
 export const TILE_W = 128;
