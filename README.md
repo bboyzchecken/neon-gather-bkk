@@ -1,8 +1,11 @@
-# Neon Gather BKK — Phase 0 (MVP Core Loop)
+# Neon Gather BKK — Phase 1 (Community Depth)
 
-Cozy multiplayer community-mall web game. Phase 0 proves the core loop:
-**register → rent a plot → order at the bar → trade on the marketplace**, with
-realtime avatar sync and an AutoServeBot-driven table order/serve/collect flow.
+Cozy multiplayer community-mall web game. Phase 0 proved the core loop
+(**register → rent a plot → order at the bar → trade on the marketplace** with
+realtime avatar sync); Phase 1 adds the community layer: **jobs & skill trees,
+quests (main/job/daily/weekly/community), a player job board with tips & reviews,
+vending machines, a photo booth with a shareable album, and a visible
+AutoServeBot that walks the floor (grid A*)**.
 
 > Backend follows the Go REST template in `../PROJECT_TEMPLATE.md`
 > (Echo + GORM + Uber FX). See [DECISIONS.md](DECISIONS.md) for the full rationale.
@@ -34,7 +37,7 @@ neon-gather-bkk/
 ├─ packages/
 │  └─ shared-types/   TS wire contracts for web + game (mirrors the Go JSON)
 ├─ docker-compose.yml   infra (postgres, redis, minio) + optional full app stack
-├─ .env                 dev defaults (committed; local only)
+├─ .env                 local env — copy from .env.example (gitignored: holds real keys)
 └─ turbo.json / pnpm-workspace.yaml
 ```
 
@@ -57,7 +60,7 @@ pnpm install
 pnpm infra:up          # starts PostgreSQL + Redis + MinIO (+ bucket init)
 pnpm api:seed          # migrate + seed mock data
 # terminal 1:
-pnpm api:dev           # Go API on :5000 (auto-migrates on start)
+pnpm api:dev           # Go API on :5001 (auto-migrates on start; 5000 is taken by macOS AirPlay)
 # terminal 2:
 pnpm dev               # web on :3000 + game on :5173
 ```
@@ -72,7 +75,7 @@ Then open **http://localhost:3000**.
 docker compose --profile apps up -d --build
 ```
 
-Brings up PostgreSQL, Redis, MinIO **and** the Go API (:5000), web (:3000), game (:5173).
+Brings up PostgreSQL, Redis, MinIO **and** the Go API (:5001 on host), web (:3000), game (:5173).
 The API container auto-migrates and seeds on boot.
 
 ### Ports
@@ -81,7 +84,7 @@ The API container auto-migrates and seeds on boot.
 |---|---|
 | Web shell | http://localhost:3000 |
 | Game | http://localhost:5173 |
-| API | http://localhost:5000 |
+| API | http://localhost:5001 |
 | MinIO console | http://localhost:9001 (neon_minio / neon_minio_pw) |
 | PostgreSQL | localhost:5432 · Redis | localhost:6379 |
 
@@ -104,10 +107,31 @@ The API container auto-migrates and seeds on boot.
    or vendor-sell them; sales feed the weekly earnings leaderboard.
 6. Open a second browser (or the guest mode) to see avatars sync in realtime.
 
+## Testing the Phase 1 features
+
+1. **Jobs & quests** — everything you already do grants XP: creating items
+   (CRAFTER), vendor sales (VENDOR), marketplace trades / renting (MERCHANT),
+   collecting tables (HOST), photos & vending buys (EXPLORER). Watch levels and
+   claim quest rewards on the **Dashboard**; the in-game **quest tracker** card
+   (top-right, toggle with **Q**) shows live progress.
+2. **Vending machine** — walk to the `V-01` machine near the bar, press **E**,
+   then **1-4** to buy: coins go to the owner, the item drops into your inventory,
+   the owner gets a low-stock alert at ≤2 left.
+3. **Photo booth** — walk to the 📸 booth (south-east), press **E**, pick a
+   backdrop with **1-3**, **SPACE** to shoot. The shot lands in **/album** with a
+   public share link (`/p/<token>`).
+4. **Job board** — rent a plot, open **/jobs**, post a position (wage per table
+   collected). Another player applies, you hire them; they get order alerts for
+   your plot and earn the wage each time they collect a table there. Tip and
+   review them from the same page (players ↔ players: tips/reviews only — hearts
+   are reserved for Phase 2 story NPCs).
+5. **Community quest** — "Avenue Rush": all players' table orders count toward a
+   server-wide weekly goal; contribute at least once and claim when it completes.
+
 ### Via curl (API only)
 
 ```bash
-API=http://localhost:5000
+API=http://localhost:5001
 # guest login
 TOKEN=$(curl -s -X POST $API/auth/guest | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 auth="Authorization: Bearer $TOKEN"
@@ -136,7 +160,21 @@ curl -s $API/leaderboard/earnings -H "$auth"
 | GET | `/marketplace` · POST `/marketplace/:id/list` \| `/unlist` \| `/buy` | zero-sum trade |
 | GET | `/tables` · POST `/tables/:id/order` \| `/collect` | AutoServeBot lifecycle |
 | GET | `/leaderboard/earnings` | Redis weekly top 10 sellers |
-| GET | `/ws?token=…` | WebSocket: avatar sync + table broadcasts |
+| GET | `/ws?token=…` | WebSocket: avatar sync + table/vending broadcasts + personal alerts |
+
+### Phase 1 additions
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/jobs/mine` · `/jobs/tree` | 5 jobs, XP/levels, unlocked perks, full skill tree |
+| GET | `/quests` · POST `/quests/:id/claim` | merged defs + my progress per current period |
+| GET/POST | `/staff/postings` (+ `/:id/close` `/:id/apply` `/:id/applications`) | job board |
+| GET | `/staff/employments/mine` | my gigs |
+| POST | `/staff/employments/:id/hire` \| `/end` \| `/tip` \| `/review` | tips/reviews only (iron rule) |
+| GET | `/staff/:staff_id/reviews` | public review list |
+| GET | `/vending` · POST `/vending/slots/:slot_id/buy` \| `/restock` | guarded stock, zero-sum coins |
+| POST | `/photos` · GET `/photos/mine` · DELETE `/photos/:id` | booth uploads (moderation stub) |
+| GET | `/share/photos/:token` | public share (no auth, unguessable token) |
 
 ---
 
@@ -154,9 +192,11 @@ pnpm stack:up/down  # full docker stack (profile: apps)
 
 ## Art assets
 
-Phase 0 ships with a generated "Bangkok Urban Cozy" asset set (28 images) living in
+The generated "Bangkok Urban Cozy" asset set (32 images) lives in
 `apps/game/public/assets/` (+ icon copies in `apps/web/public/assets/icons/`):
-facades, tables, bar counter, tropical plants, floor textures, item icons, UI sheets.
+facades, tables, bar counter, tropical plants, floor textures, item icons, UI sheets,
+and the Phase 1 additions — vending machine, photo booth, quest-card UI reference,
+plus `concepts/char_avatar_concept_01.png` (avatar lineup for real-artist handoff).
 
 - Style is anchored by `_STYLE_REF_day.png` / `_STYLE_REF_night.png` (approved concepts).
 - Regenerate with `node scripts/gen-assets.mjs` (needs `BFL_API_KEY` in `.env`;
@@ -171,5 +211,7 @@ just `pnpm --filter @neon/game dev`.
 
 ## Tests
 
-- Go business logic: `cd apps/api && go test ./...` (wallet money math: no overdraw, zero-sum trades).
+- Go business logic: `cd apps/api && go test ./...` — wallet money math (no overdraw,
+  zero-sum trades), Phase 1 XP/level curve + perk unlocks, quest period keys
+  (daily/weekly reset boundaries).
 - Type safety: `pnpm typecheck` across web + game.

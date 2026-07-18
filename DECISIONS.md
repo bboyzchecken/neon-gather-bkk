@@ -102,3 +102,84 @@ Phase 1 photo booth) at this scale.
 Single root `.env` (committed dev defaults). The Go API loads `./.env` then `../../.env`
 via godotenv + Viper `AutomaticEnv`; Docker services get env from compose. Global TZ is
 `Asia/Bangkok` per the template.
+
+---
+
+## Phase 1 — Community Depth
+
+### D1.1 Job list adapted to live systems (spec deviation)
+The brief lists Fisher/Farmer/Crafter/Merchant/Explorer, but fishing was removed from
+scope (D0.8) and no farming system exists. Phase 1 ships five jobs that all have real
+XP sources today: **VENDOR** (vendor sales, vending machines), **MERCHANT**
+(marketplace trades, plot rent), **CRAFTER** (item creation), **HOST** (table
+collection, staff shifts, tips), **EXPLORER** (photo booth, table orders, vending
+buys). Enum strings live in `models/enums.go`; renames are cheap if product wants the
+original names back.
+
+### D1.2 Progress events: one server-side entry point
+`services/progress.Fire(playerID, event)` is the only path that awards job XP and
+advances quests (personal + community). Handlers fire events AFTER their own economy
+transaction commits; progress runs in its own transaction and never breaks the calling
+flow (iron rule §9 — nothing about XP/progress comes from the client). XP curve, perk
+tree and period-key math are pure domain packages (`domain/progression`,
+`domain/questperiod`) with unit tests.
+
+### D1.3 Quest periods via composite unique key
+`player_quests` has UNIQUE (player_id, quest_id, period_key) where period_key is `-`
+(MAIN/JOB), `2026-07-18` (DAILY) or `2026-W29` (WEEKLY/COMMUNITY, ISO week, server TZ
+Asia/Bangkok). Daily/weekly resets are therefore row-creation, not row-mutation — no
+cron needed and double-claims are impossible at the DB level (iron rule §10). Claim is
+a guarded `UPDATE … WHERE status='COMPLETED'`. Community quests accumulate in a
+separate `community_progresses` row per (quest, period); a player must have contributed
+≥1 event that period to claim once the server-wide goal is met.
+
+### D1.4 Job board wage model: per-table-collected
+The brief allows wage/revenue-share; Phase 1 implements **wage per table collected on
+the employer's plot** (`JobPosting.WagePerTask`) because collection is the one staff
+action the server can already verify. Wage transfer owner→staff is zero-sum through the
+ledger (`WAGE_PAY`/`WAGE_RECEIVE`) and silently skipped if the owner can't cover it.
+Tips (`TIP_PAY`/`TIP_RECEIVE`) and 1-5★ reviews (UNIQUE (employment, rater)) are the
+only player↔player relations — no heart/affection accumulator exists on any
+player-linked table (iron rule; hearts arrive in Phase 2 bound to StaffNPC only).
+
+### D1.5 Vending machines mint items, coins stay zero-sum
+Slots are product templates (name/thumb/price/stock); buying decrements stock with a
+guarded `UPDATE … WHERE stock > 0`, moves coins buyer→owner zero-sum, and mints a fresh
+Item row for the buyer — consistent with Phase 0's free-mint `CreateItem`. Restock is
+capped in SQL (`stock + add <= cap`), base cap 10, raised by VENDOR "Stockmaster" perks.
+Low stock (≤2) pushes a WS `vending_low_stock` alert to the owner.
+
+### D1.6 AutoServeBot: server state, client walking
+Table state remains fully server-authoritative (the Phase 0 ticker). Phase 1 adds a
+**visual** AutoServeBot in the game client: a dependency-free 4-dir grid A*
+(`src/pathfind.ts`, plots are blocked tiles) walks the bot to ORDERED tables (serve)
+and COLLECTED tables (clean), then home. No gameplay depends on the bot's position, so
+client-side animation can't desync the economy. easystar.js was skipped — the world is
+24×24 and the A* is ~70 lines.
+
+### D1.7 Photo booth: canvas snapshot + share tokens
+The Phaser CANVAS renderer (chosen in D0.12b for this feature) snapshots a region
+around the booth (`renderer.snapshotArea`), uploads it as multipart PNG through the
+moderation stub to MinIO/R2, and stores a `Photo` row with `photo_type`
+('BOOTH' | 'HEART_SPECIAL' — the latter reserved per the brief for Phase 2) and an
+unguessable UUID `share_token`. The public page `/p/[token]` (and API
+`GET /share/photos/:token`) needs no auth; the album page manages/deletes own photos.
+
+### D1.9 .env is NOT committed after all (supersedes part of D0.12)
+D0.12 described the root `.env` as "committed dev defaults", but the leftover
+template-oss root `.gitignore` (ignore-everything) had silently kept it untracked —
+and by Phase 1 it holds a real paid `BFL_API_KEY`, so committing it to a GitHub-remote
+repo would leak the key. Resolution: `.env` stays local and gitignored; the committed
+contract is **`.env.example`** (dev defaults + `BFL_API_KEY` placeholder). The same
+cleanup replaced the template-oss `.gitignore`, restored the template-mangled root
+`package.json`/`.npmrc`, and moved `@npmcli/template-oss` artifacts
+(`.commitlintrc.js`, `.eslintrc.js`, `.github/` npm workflows) out of the repo.
+
+### D1.8 Phase 1 asset generation
+Same BFL FLUX Kontext pipeline (D0.12b) extended with `prop_vending_01`,
+`prop_photobooth_01`, `ui_quest_card_01` (F3 reference) and
+`char_avatar_concept_01` (E1 concept for real-artist handoff, per §0.3 art
+scheduling). The white→alpha post-process now also flood-fills desaturated light greys
+from the borders because FLUX kept baking soft ground shadows despite the negative
+prompt (violating the no-baked-shadow rule); raw outputs are kept in `.asset-raw/` so
+post-processing can be re-tuned without re-billing.

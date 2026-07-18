@@ -107,7 +107,7 @@ services:
       SIGNUP_BONUS_COINS: ${SIGNUP_BONUS_COINS}
       GUEST_BONUS_COINS: ${GUEST_BONUS_COINS}
     ports:
-      - "5000:5000"
+      - "5001:5000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -122,7 +122,7 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:5000
+        NEXT_PUBLIC_API_URL: http://localhost:5001
         NEXT_PUBLIC_GAME_URL: http://localhost:5173
     restart: unless-stopped
     ports:
@@ -136,7 +136,7 @@ services:
       context: .
       dockerfile: apps/game/Dockerfile
       args:
-        VITE_API_URL: http://localhost:5000
+        VITE_API_URL: http://localhost:5001
     restart: unless-stopped
     ports:
       - "5173:80"

@@ -13,3 +13,7 @@ apps/api/bin/
 
 # asset pipeline raw cache (re-tune post-processing without re-billing BFL)
 .asset-raw/
+*.tsbuildinfo
+
+# local env (holds the real BFL_API_KEY — never commit)
+.env

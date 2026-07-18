@@ -3,21 +3,26 @@
   "configurations": [
     {
       "name": "game",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@neon/game", "dev"],
+      "runtimeExecutable": "/Users/jiraphatsintuwong/.nvm/versions/node/v22.21.1/bin/node",
+      "runtimeArgs": [
+        "apps/game/node_modules/vite/bin/vite.js",
+        "apps/game",
+        "--config",
+        "apps/game/vite.config.ts"
+      ],
       "port": 5173
     },
     {
       "name": "web",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@neon/web", "dev"],
+      "runtimeExecutable": "/Users/jiraphatsintuwong/.nvm/versions/node/v22.21.1/bin/node",
+      "runtimeArgs": ["apps/web/node_modules/next/dist/bin/next", "dev", "apps/web"],
       "port": 3000
     },
     {
       "name": "api",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["api:dev"],
-      "port": 5000
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "-C", "apps/api", "."],
+      "port": 5001
     }
   ]
 }
