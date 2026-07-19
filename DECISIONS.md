@@ -326,3 +326,14 @@ Battle pass / cosmetic monetization is deliberately NOT built: it needs product
 pricing decisions and a real user base first (matches the plan's own risk
 notes). Multi-floor per-floor themes beyond three floors are schema-ready
 (floor int, no cap in data — server clamps 1..3 for now).
+
+### D3.4 Seenspace-reference night hall (2026-07-19)
+Owner supplied Seenspace Thonglor photos as the interior/night reference. The
+G-floor now matches it: dining relaid as a BEER GARDEN — eight long communal
+tables (new light-oak + black-steel asset) in two rows, laid out by code so
+existing DBs move too; a cluster of woven rattan pendants (new asset) hangs
+over the rows and the lounge, adding warm additive light pools after dark;
+open shops get additive neon accents above their signs at night (shapes only,
+no lettering — art rule) plus a warm storefront spill; the lounge courtyard
+sits on a black-and-white checkered floor; large interior ficus trees (new
+asset) break up the hall like Seenspace's atrium. Rooftop keeps round tables.

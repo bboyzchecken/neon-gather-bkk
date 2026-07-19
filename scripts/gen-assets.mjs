@@ -230,6 +230,10 @@ const ASSETS = [
   // ---- Phase 2 additions ----
   // display cabinet (library B6) — coaster showcase furniture
   A('prop_cabinet_01.png', 'world', 'a glass display cabinet with a dark forest-green steel frame and teak base, three empty glass shelves, warm interior lighting, standing upright against nothing.', { alpha: true }),
+  // Phase 3b — Seenspace-style night hall (communal seating + hanging light)
+  A('prop_table_communal_01.png', 'world', 'a long communal dining table with a light oak wood top and slim black steel legs, six black metal tolix-style stools tucked in around it, modern beer-garden style.', { alpha: true, aspect: '16:9' }),
+  A('prop_lamp_rattan_01.png', 'world', 'a single round handwoven rattan pendant lamp hanging from a thin black cord, a warm glowing filament bulb visible inside, light passing through the weave.', { alpha: true }),
+  A('prop_tree_interior_01.png', 'world', 'a large indoor ficus tree with a slender dark trunk and a lush layered green canopy, planted in a big round dark grey concrete planter.', { alpha: true }),
   // Phase 3 — vertical transport
   A('env_elevator_01.png', 'world', 'a compact interior elevator unit: dark forest-green metal double doors with a round brass floor-indicator dial above them, a warm cream surrounding frame with a teak base, and a small call-button panel beside the doors.', { alpha: true }),
   A('env_stairs_01.png', 'world', 'a straight interior staircase rising from lower-left to upper-right: teak wood steps, a dark forest-green steel railing with thin balusters, a warm cream stringer side panel.', { alpha: true }),

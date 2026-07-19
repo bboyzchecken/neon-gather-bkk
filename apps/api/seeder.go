@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"gorm.io/gorm"
 
 	"neongather/pkg/core"
@@ -263,31 +261,33 @@ func relayoutPlots(d *gorm.DB) error {
 func seedTables(d *gorm.DB) error {
 	var count int64
 	d.Model(&models.DiningTable{}).Count(&count)
-	if count == 0 {
-		for i := 1; i <= 4; i++ {
-			t := models.DiningTable{
-				Code:  fmt.Sprintf("T-%02d", i),
-				Floor: 1,
-				GridX: 4 + i*2,
-				GridY: 16,
-				State: models.TableEmpty,
-			}
-			if err := d.Create(&t).Error; err != nil {
-				return err
-			}
-		}
+	_ = count
+	// Seenspace-style beer garden: communal tables in two rows on the food
+	// court + rooftop garden tables. Laid out by code (create-or-move) so
+	// layout changes reach existing DBs.
+	tableLayout := []models.DiningTable{
+		{Code: "T-01", Floor: 1, GridX: 4, GridY: 14},
+		{Code: "T-02", Floor: 1, GridX: 7, GridY: 14},
+		{Code: "T-03", Floor: 1, GridX: 10, GridY: 14},
+		{Code: "T-04", Floor: 1, GridX: 13, GridY: 14},
+		{Code: "T-07", Floor: 1, GridX: 4, GridY: 17},
+		{Code: "T-08", Floor: 1, GridX: 7, GridY: 17},
+		{Code: "T-09", Floor: 1, GridX: 10, GridY: 17},
+		{Code: "T-10", Floor: 1, GridX: 13, GridY: 17},
+		{Code: "T-05", Floor: 3, GridX: 8, GridY: 9},
+		{Code: "T-06", Floor: 3, GridX: 13, GridY: 12},
 	}
-	// rooftop garden tables (floor 3) — added by code so old DBs get them too
-	rooftop := []models.DiningTable{
-		{Code: "T-05", Floor: 3, GridX: 8, GridY: 9, State: models.TableEmpty},
-		{Code: "T-06", Floor: 3, GridX: 13, GridY: 12, State: models.TableEmpty},
-	}
-	for _, t := range rooftop {
+	for _, t := range tableLayout {
 		var existing models.DiningTable
-		if err := d.First(&existing, "code = ?", t.Code).Error; err == nil {
+		if err := d.First(&existing, "code = ?", t.Code).Error; err != nil {
+			t.State = models.TableEmpty
+			if cerr := d.Create(&t).Error; cerr != nil {
+				return cerr
+			}
 			continue
 		}
-		if err := d.Create(&t).Error; err != nil {
+		if err := d.Model(&models.DiningTable{}).Where("code = ?", t.Code).
+			Updates(map[string]any{"floor": t.Floor, "grid_x": t.GridX, "grid_y": t.GridY}).Error; err != nil {
 			return err
 		}
 	}

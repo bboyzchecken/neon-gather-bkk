@@ -29,6 +29,10 @@ export const TEXTURES: Record<string, string> = {
   // Phase 3
   elevator: 'world/env_elevator_01.png',
   stairs: 'world/env_stairs_01.png',
+  // Phase 3b — Seenspace-style night hall
+  table_communal: 'world/prop_table_communal_01.png',
+  lamp_rattan: 'world/prop_lamp_rattan_01.png',
+  tree_interior: 'world/prop_tree_interior_01.png',
 };
 
 /** Map a plot facade template to its texture key. */

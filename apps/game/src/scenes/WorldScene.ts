@@ -427,6 +427,7 @@ export class WorldScene extends Phaser.Scene {
         this.blitFloor(path, ENTRANCE.start, 1, ENTRANCE.width, ROWS - 1);
         this.blitFloor(path, 1, 14, COLS - 1, 4);
       }
+      if (this.floor === 1) this.drawCheckerCourt();
     } else {
       // fallback: flat-shaded diamonds
       const g = this.add.graphics().setDepth(0);
@@ -611,6 +612,42 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  /** Rattan pendant lamps over the communal table rows (Seenspace look).
+   * The lamp sprite carries its own lit bulb; at dusk/night an additive
+   * warm pool spills onto the tables below. */
+  private hangRattanLamps(): void {
+    if (!this.tex('lamp_rattan')) return;
+    const spots: Array<[number, number, number]> = [
+      // [gx, gy, hangHeight px] — high enough to clear the table rows
+      [5.5, 15.6, 218],
+      [8.5, 15.4, 240],
+      [11.5, 15.6, 218],
+      [17.2, 8.9, 230], // one over the lounge courtyard too
+    ];
+    const glow = this.add.graphics().setDepth(3);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    for (const [gx, gy, hang] of spots) {
+      const c = isoPos(gx, gy);
+      const lampY = c.y - hang;
+      // cord up into the dark
+      const cord = this.add.graphics().setDepth(lampY);
+      cord.lineStyle(2, 0x1a140c, 0.8);
+      cord.lineBetween(c.x, lampY - 130, c.x, lampY);
+      const lamp = this.add.image(c.x, lampY, 'lamp_rattan').setOrigin(0.5, 0).setDepth(lampY);
+      const w = TILE_W * 0.55;
+      lamp.setDisplaySize(w, (w * lamp.height) / lamp.width);
+      if (this.phase !== 'day') {
+        // warm light pool on the tables + halo around the shade
+        glow.fillStyle(0xffb45e, 0.16);
+        glow.fillCircle(c.x, lampY + w * 0.6, w * 0.9);
+        glow.fillStyle(0xff9d3c, 0.1);
+        glow.fillEllipse(c.x, c.y + TILE_H * 0.2, TILE_W * 2.4, TILE_H * 1.9);
+        glow.fillStyle(0xffd98a, 0.07);
+        glow.fillEllipse(c.x, c.y + TILE_H * 0.2, TILE_W * 3.6, TILE_H * 2.8);
+      }
+    }
+  }
+
   /** Rooftop garden (floor 3): open sky, low parapet on every edge, dense
    * string lights — no tall walls up here. */
   private drawRooftopShell(): void {
@@ -718,6 +755,17 @@ export class WorldScene extends Phaser.Scene {
     this.scale.on('resize', paint);
   }
 
+  /** Black-and-white checkered court under the lounge (Seenspace alley). */
+  private drawCheckerCourt(): void {
+    const g = this.add.graphics().setDepth(0.5);
+    for (let gy = 7; gy <= 12; gy++) {
+      for (let gx = 15; gx <= 21; gx++) {
+        g.fillStyle((gx + gy) % 2 === 0 ? 0x20201e : 0xe9e4d8, 0.92);
+        this.fillDiamond(g, gx, gy);
+      }
+    }
+  }
+
   private fillDiamond(g: Phaser.GameObjects.Graphics, gx: number, gy: number): void {
     const t = isoPos(gx, gy);
     const r = isoPos(gx + 1, gy);
@@ -776,6 +824,15 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
     this.placeProp('counter_bar', 15.6, 16.2, TILE_W * 2.9);
+    // Seenspace touches: big interior trees breaking up the hall…
+    const trees: Array<[number, number]> = [
+      [3.2, 13.2],
+      [14.8, 12.6],
+      [21.3, 13.4],
+    ];
+    trees.forEach(([gx, gy]) => this.placeProp('tree_interior', gx, gy, TILE_W * 1.15));
+    // …and a cluster of rattan pendants glowing over the communal rows
+    this.hangRattanLamps();
     // lounge courtyard: flat rug hugs the floor, sofa group on top
     if (this.tex('rug')) {
       const r = isoPos(LOUNGE.gx, LOUNGE.gy + 0.3);
@@ -981,6 +1038,9 @@ export class WorldScene extends Phaser.Scene {
       // fill the 4-tile unit so adjacent shops read continuous
       const w = TILE_W * 3.4;
       facade.setDisplaySize(w, (w * facade.height) / facade.width);
+      if (this.phase !== 'day' && p.status === 'RENTED') {
+        this.drawShopNeon(cx, anchorY - facade.displayHeight, anchorY, w, p);
+      }
     }
 
     const label = this.add
@@ -1034,6 +1094,28 @@ export class WorldScene extends Phaser.Scene {
         seg(isoPos(p.grid_x, gy), isoPos(p.grid_x + depth, gy), 0xe6d5b8);
       }
     }
+  }
+
+  /** After dark, open shops get a neon accent above the sign and a warm
+   * spill on the walkway (additive, shapes only — no lettering, per the
+   * locked art rules). Colours rotate per shop like a real mall strip. */
+  private drawShopNeon(cx: number, topY: number, baseY: number, w: number, p: Plot): void {
+    const palette = [0xff5fa8, 0x5fc8ff, 0x69e0c3, 0xffb84d];
+    const color = palette[(p.code.charCodeAt(p.code.length - 1) || 0) % palette.length];
+    const g = this.add.graphics().setDepth(baseY + 1);
+    g.setBlendMode(Phaser.BlendModes.ADD);
+    // neon tube: rounded outline + soft halo
+    const nw = w * 0.34;
+    const nh = 16;
+    const nx = cx - nw / 2;
+    const ny = topY + 6;
+    g.lineStyle(6, color, 0.2);
+    g.strokeRoundedRect(nx - 3, ny - 3, nw + 6, nh + 6, 9);
+    g.lineStyle(2.5, color, 0.95);
+    g.strokeRoundedRect(nx, ny, nw, nh, 7);
+    // warm spill from the storefront onto the walkway
+    g.fillStyle(0xffa04d, 0.09);
+    g.fillEllipse(cx, baseY + TILE_H * 0.45, w * 0.95, TILE_H * 2.2);
   }
 
   private blitPlotFloor(p: Plot): void {
@@ -1224,9 +1306,13 @@ export class WorldScene extends Phaser.Scene {
     if (!v) {
       let sprite: Phaser.GameObjects.Image | undefined;
       let fallback: Phaser.GameObjects.Rectangle | undefined;
-      if (this.tex('table_round')) {
-        sprite = this.add.image(c.x, anchorY, 'table_round').setOrigin(0.5, 1).setDepth(anchorY);
-        const w = TILE_W * 0.95;
+      // Seenspace look: long communal tables in the G-floor beer garden,
+      // round cafe tables elsewhere (rooftop keeps the cozy round ones)
+      const key =
+        this.floor === 1 && this.tex('table_communal') ? 'table_communal' : 'table_round';
+      if (this.tex(key)) {
+        sprite = this.add.image(c.x, anchorY, key).setOrigin(0.5, 1).setDepth(anchorY);
+        const w = key === 'table_communal' ? TILE_W * 1.55 : TILE_W * 0.95;
         sprite.setDisplaySize(w, (w * sprite.height) / sprite.width);
       } else {
         fallback = this.add
