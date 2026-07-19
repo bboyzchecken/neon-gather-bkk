@@ -138,6 +138,17 @@ func Migrate(d *gorm.DB) error {
 				)
 			},
 		},
+		{
+			ID: "20260719_phase3_floors",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(
+					&models.Plot{},           // adds floor
+					&models.DiningTable{},    // adds floor
+					&models.VendingMachine{}, // adds floor
+				)
+			},
+			Rollback: func(tx *gorm.DB) error { return nil },
+		},
 	})
 	return m.Migrate()
 }

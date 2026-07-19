@@ -292,3 +292,37 @@ Lv6 cosmetic / Lv8 visit event / Lv10 heart_special portrait deliver their
 story text now — their tangible payloads land with the decor system and the
 guest artist's final art (concept sheet generated for handoff; AI art is
 concept-only for characters per the asset library rule).
+
+---
+
+## Phase 3 — Scale & World Expansion (in progress)
+
+### D3.1 Multi-floor building: one floor rendered at a time
+Every placeable (Plot, DiningTable, VendingMachine) and every live position
+(ws.Player, move messages, clamped server-side 1..3) carries `floor`. The client
+renders ONE floor per scene and switches by restarting WorldScene with a floor
+param — plots/tables/vending/players are filtered by floor, and same-floor is
+now part of the server's cheers presence check. Themes: G = bar + food court
+(everything from Phases 0-2 stays here, incl. Nara/bot/booth/gacha), 2 =
+Boutique Row (teak level, shop units B-01..B-04), 3 = Rooftop Garden (parapet
+walls, open sky, dense festoons, lounge, tables T-05/T-06). Elevator + stairs
+sit at fixed spots on every floor and open the same 1-2-3 travel panel — the
+seeder adds floor-2/3 content by code so existing DBs upgrade in place. The
+idle-XP bar zone is explicitly floor-1.
+
+### D3.2 Day/night cycle per the D0.6 architecture
+Phase (day 06-17, dusk 17-19, night otherwise; `?tod=` dev override) drives:
+camera background = sky over the parapets/walls, a screen-space tint layer
+(blue-green at night, warm at dusk) on top of the cozy dim, and the emissive
+accents — wall windows flip from teal glass to warm glow, string-light bulbs
+brighten, the entrance light spill widens. A 60s ticker restarts the scene when
+the phase flips. One asset set only (iron rule from §0.1): all of this is
+overlay + recolour, no second day/night art set.
+
+### D3.3 Community festival + deferred monetization
+The Phase 3 "server-wide event" ships as a festival set of COMMUNITY quests
+(Maker Market, Memory Wall — one goal per craft, alongside Avenue Rush).
+Battle pass / cosmetic monetization is deliberately NOT built: it needs product
+pricing decisions and a real user base first (matches the plan's own risk
+notes). Multi-floor per-floor themes beyond three floors are schema-ready
+(floor int, no cap in data — server clamps 1..3 for now).

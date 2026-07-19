@@ -77,7 +77,7 @@ func (s *Service) tickOnce() {
 		}
 	}
 	for _, p := range s.hub.Players() {
-		if p.X >= zoneMinX && p.X <= zoneMaxX && p.Y >= zoneMinY && p.Y <= zoneMaxY {
+		if p.Floor == 1 && p.X >= zoneMinX && p.X <= zoneMaxX && p.Y >= zoneMinY && p.Y <= zoneMaxY {
 			s.progress.Fire(p.ID, models.EventBarIdle)
 			for _, n := range onShift {
 				pid := p.ID

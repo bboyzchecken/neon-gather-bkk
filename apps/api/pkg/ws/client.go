@@ -28,7 +28,7 @@ func NewClient(hub *Hub, conn *websocket.Conn, playerID, displayName string) *Cl
 // Start registers the client, sends the initial snapshot (players + tables),
 // then runs the read/write loops. Blocks until the socket closes.
 func (c *Client) Start(tables []TableView) {
-	c.hub.setPlayer(&Player{ID: c.PlayerID, DisplayName: c.DisplayName, Dir: "down"})
+	c.hub.setPlayer(&Player{ID: c.PlayerID, DisplayName: c.DisplayName, Dir: "down", Floor: 1})
 	c.hub.add(c)
 
 	c.trySend(mustJSON(map[string]any{
@@ -38,7 +38,7 @@ func (c *Client) Start(tables []TableView) {
 	}))
 	c.hub.Broadcast(mustJSON(map[string]any{
 		"type":   "player_joined",
-		"player": Player{ID: c.PlayerID, DisplayName: c.DisplayName, Dir: "down"},
+		"player": Player{ID: c.PlayerID, DisplayName: c.DisplayName, Dir: "down", Floor: 1},
 	}))
 
 	go c.writeLoop()
@@ -89,10 +89,11 @@ func (c *Client) writeLoop() {
 }
 
 type moveMsg struct {
-	Type string  `json:"type"`
-	X    float64 `json:"x"`
-	Y    float64 `json:"y"`
-	Dir  string  `json:"dir"`
+	Type  string  `json:"type"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	Dir   string  `json:"dir"`
+	Floor int     `json:"floor"`
 }
 
 func (c *Client) handle(data []byte) {
@@ -101,10 +102,20 @@ func (c *Client) handle(data []byte) {
 		return
 	}
 	if m.Type == "move" {
-		p := &Player{ID: c.PlayerID, DisplayName: c.DisplayName, X: m.X, Y: m.Y, Dir: safeDir(m.Dir)}
+		p := &Player{ID: c.PlayerID, DisplayName: c.DisplayName, X: m.X, Y: m.Y, Dir: safeDir(m.Dir), Floor: safeFloor(m.Floor)}
 		c.hub.setPlayer(p)
 		c.hub.Broadcast(mustJSON(map[string]any{"type": "player_moved", "player": *p}))
 	}
+}
+
+func safeFloor(f int) int {
+	if f < 1 {
+		return 1
+	}
+	if f > 3 {
+		return 3
+	}
+	return f
 }
 
 func safeDir(d string) string {

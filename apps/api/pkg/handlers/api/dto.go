@@ -32,6 +32,7 @@ func userID(c echo.Context) string {
 type plotDTO struct {
 	ID               string  `json:"id"`
 	Code             string  `json:"code"`
+	Floor            int     `json:"floor"`
 	GridX            int     `json:"grid_x"`
 	GridY            int     `json:"grid_y"`
 	WidthTiles       int     `json:"width_tiles"`
@@ -55,6 +56,7 @@ func toPlotDTO(p models.Plot, uid string) plotDTO {
 	return plotDTO{
 		ID:               p.ID,
 		Code:             p.Code,
+		Floor:            p.Floor,
 		GridX:            p.GridX,
 		GridY:            p.GridY,
 		WidthTiles:       p.WidthTiles,

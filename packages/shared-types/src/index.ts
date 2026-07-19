@@ -4,6 +4,13 @@
  * Framework-free: only types, enums and constants.
  */
 
+/* Building floors (Phase 3) */
+export const FLOORS = [
+  { floor: 1, name: 'G — The Avenue', theme: 'bar & food court' },
+  { floor: 2, name: '2 — Boutique Row', theme: 'quiet shops' },
+  { floor: 3, name: '3 — Rooftop Garden', theme: 'open-air chill' },
+] as const;
+
 /* ============================================================
  * Art & Grid Standards (locked — see v2 build prompt §0.1)
  * ============================================================ */
@@ -64,6 +71,7 @@ export interface AuthResponse {
 export interface Plot {
   id: string;
   code: string;
+  floor: number;
   grid_x: number;
   grid_y: number;
   width_tiles: number;
@@ -100,6 +108,7 @@ export interface LeaderboardEntry {
 export interface TableView {
   id: string;
   code: string;
+  floor: number;
   grid_x: number;
   grid_y: number;
   state: TableState;
@@ -199,6 +208,7 @@ export interface VendingMachineView {
   plot_id: string | null;
   owner_id: string;
   owner_name: string | null;
+  floor: number;
   grid_x: number;
   grid_y: number;
   slots: VendingSlotView[];
@@ -328,6 +338,7 @@ export interface PlayerState {
   x: number;
   y: number;
   dir: Direction;
+  floor: number;
 }
 
 /** Client -> Server (only movement in Phase 0). */
@@ -336,6 +347,7 @@ export interface MoveMessage {
   x: number;
   y: number;
   dir: Direction;
+  floor: number;
 }
 
 /** Server -> Client messages, discriminated by `type`. */

@@ -14,6 +14,7 @@ type DiningTable struct {
 	ID        string     `gorm:"primaryKey;size:36" json:"id"`
 	Code      string     `gorm:"uniqueIndex;size:16" json:"code"`
 	PlotID    *string    `gorm:"size:36;index" json:"plot_id"`
+	Floor     int        `gorm:"default:1;index" json:"floor"`
 	GridX     int        `json:"grid_x"`
 	GridY     int        `json:"grid_y"`
 	State     string     `gorm:"size:16;default:EMPTY" json:"state"`

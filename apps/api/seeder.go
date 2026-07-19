@@ -157,6 +157,9 @@ func seedQuests(d *gorm.DB) error {
 		{Code: "weekly_market", Type: models.QuestWeekly, Title: "Trade Week", Description: "Complete 10 marketplace purchases this week", Event: models.EventMarketBuy, Target: 10, RewardCoins: 300, SortOrder: 30},
 		// community quest (server-wide weekly goal)
 		{Code: "community_orders", Type: models.QuestCommunity, Title: "Avenue Rush", Description: "The whole avenue serves 100 table orders this week", Event: models.EventTableOrder, Target: 100, RewardCoins: 250, SortOrder: 40},
+		// Phase 3 festival — one server-wide goal per craft so every job pulls together
+		{Code: "festival_crafts", Type: models.QuestCommunity, Title: "Festival: Maker Market", Description: "The avenue crafts 150 items together this week", Event: models.EventItemCreate, Target: 150, RewardCoins: 200, SortOrder: 41},
+		{Code: "festival_photos", Type: models.QuestCommunity, Title: "Festival: Memory Wall", Description: "The avenue takes 40 booth photos together this week", Event: models.EventPhotoTaken, Target: 40, RewardCoins: 200, SortOrder: 42},
 	}
 	for _, q := range quests {
 		var existing models.Quest
@@ -206,20 +209,29 @@ func seedVending(d *gorm.DB) error {
 // Top wall: 4 units flanking the entrance (tiles 10-13). Left wall: 2 units.
 var mallLayout = []struct {
 	code   string
+	floor  int
 	gx, gy int
 }{
-	{"A-01", 2, 1}, {"A-02", 6, 1}, {"A-03", 14, 1}, {"A-04", 18, 1},
-	{"A-05", 1, 6}, {"A-06", 1, 10},
+	// G floor — bar + food court level
+	{"A-01", 1, 2, 1}, {"A-02", 1, 6, 1}, {"A-03", 1, 14, 1}, {"A-04", 1, 18, 1},
+	{"A-05", 1, 1, 6}, {"A-06", 1, 1, 10},
+	// floor 2 — boutique level (Phase 3)
+	{"B-01", 2, 2, 1}, {"B-02", 2, 6, 1}, {"B-03", 2, 14, 1}, {"B-04", 2, 18, 1},
 }
 
 func seedPlots(d *gorm.DB) error {
 	var count int64
 	d.Model(&models.Plot{}).Count(&count)
-	if count == 0 {
+	if count >= 0 { // per-code idempotency below; count kept for clarity
 		facades := []string{models.FacadeCafe, models.FacadeVintage, models.FacadeStreetfood}
 		for i, slot := range mallLayout {
+			var existing models.Plot
+			if err := d.First(&existing, "code = ?", slot.code).Error; err == nil {
+				continue
+			}
 			p := models.Plot{
 				Code:           slot.code,
+				Floor:          slot.floor,
 				GridX:          slot.gx,
 				GridY:          slot.gy,
 				WidthTiles:     4,
@@ -241,7 +253,7 @@ func seedPlots(d *gorm.DB) error {
 func relayoutPlots(d *gorm.DB) error {
 	for _, slot := range mallLayout {
 		if err := d.Model(&models.Plot{}).Where("code = ?", slot.code).
-			Updates(map[string]any{"grid_x": slot.gx, "grid_y": slot.gy}).Error; err != nil {
+			Updates(map[string]any{"grid_x": slot.gx, "grid_y": slot.gy, "floor": slot.floor}).Error; err != nil {
 			return err
 		}
 	}
@@ -255,6 +267,7 @@ func seedTables(d *gorm.DB) error {
 		for i := 1; i <= 4; i++ {
 			t := models.DiningTable{
 				Code:  fmt.Sprintf("T-%02d", i),
+				Floor: 1,
 				GridX: 4 + i*2,
 				GridY: 16,
 				State: models.TableEmpty,
@@ -262,6 +275,20 @@ func seedTables(d *gorm.DB) error {
 			if err := d.Create(&t).Error; err != nil {
 				return err
 			}
+		}
+	}
+	// rooftop garden tables (floor 3) — added by code so old DBs get them too
+	rooftop := []models.DiningTable{
+		{Code: "T-05", Floor: 3, GridX: 8, GridY: 9, State: models.TableEmpty},
+		{Code: "T-06", Floor: 3, GridX: 13, GridY: 12, State: models.TableEmpty},
+	}
+	for _, t := range rooftop {
+		var existing models.DiningTable
+		if err := d.First(&existing, "code = ?", t.Code).Error; err == nil {
+			continue
+		}
+		if err := d.Create(&t).Error; err != nil {
+			return err
 		}
 	}
 	return linkTablesToPlots(d)

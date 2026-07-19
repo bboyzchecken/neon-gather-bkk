@@ -32,6 +32,7 @@ type vendingDTO struct {
 	PlotID    *string          `json:"plot_id"`
 	OwnerID   string           `json:"owner_id"`
 	OwnerName *string          `json:"owner_name"`
+	Floor     int              `json:"floor"`
 	GridX     int              `json:"grid_x"`
 	GridY     int              `json:"grid_y"`
 	Slots     []vendingSlotDTO `json:"slots"`
@@ -40,7 +41,8 @@ type vendingDTO struct {
 func toVendingDTO(m models.VendingMachine) vendingDTO {
 	dto := vendingDTO{
 		ID: m.ID, Code: m.Code, PlotID: m.PlotID, OwnerID: m.OwnerID,
-		GridX: m.GridX, GridY: m.GridY, Slots: make([]vendingSlotDTO, 0, len(m.Slots)),
+		Floor: m.Floor, GridX: m.GridX, GridY: m.GridY,
+		Slots: make([]vendingSlotDTO, 0, len(m.Slots)),
 	}
 	if m.Owner != nil {
 		name := m.Owner.DisplayName

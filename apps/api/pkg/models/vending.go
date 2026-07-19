@@ -16,6 +16,7 @@ type VendingMachine struct {
 	PlotID    *string       `gorm:"size:36;index" json:"plot_id"`
 	OwnerID   string        `gorm:"size:36;not null;index" json:"owner_id"`
 	Owner     *User         `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	Floor     int           `gorm:"default:1;index" json:"floor"`
 	GridX     int           `json:"grid_x"`
 	GridY     int           `json:"grid_y"`
 	Slots     []VendingSlot `gorm:"foreignKey:MachineID" json:"slots,omitempty"`

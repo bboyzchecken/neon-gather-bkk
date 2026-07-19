@@ -13,11 +13,13 @@ type Player struct {
 	X           float64 `json:"x"`
 	Y           float64 `json:"y"`
 	Dir         string  `json:"dir"`
+	Floor       int     `json:"floor"`
 }
 
 type TableView struct {
 	ID        string `json:"id"`
 	Code      string `json:"code"`
+	Floor     int    `json:"floor"`
 	GridX     int    `json:"grid_x"`
 	GridY     int    `json:"grid_y"`
 	State     string `json:"state"`
@@ -61,14 +63,14 @@ func (h *Hub) setPlayer(p *Player) {
 // Position returns a player's live position when they are connected.
 // Server-side presence checks (e.g. cheers) rely on this, never on client
 // claims.
-func (h *Hub) Position(playerID string) (x, y float64, online bool) {
+func (h *Hub) Position(playerID string) (x, y float64, floor int, online bool) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	p, ok := h.players[playerID]
 	if !ok {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
-	return p.X, p.Y, true
+	return p.X, p.Y, p.Floor, true
 }
 
 // Players returns a snapshot copy of all connected players.

@@ -2,7 +2,7 @@ import type { Direction, ServerMessage } from '@neon/shared-types';
 import { API_URL } from '../config';
 
 export interface WorldSocket {
-  sendMove(x: number, y: number, dir: Direction): void;
+  sendMove(x: number, y: number, dir: Direction, floor: number): void;
   close(): void;
 }
 
@@ -22,9 +22,9 @@ export function connectWorld(
   };
 
   return {
-    sendMove(x, y, dir) {
+    sendMove(x, y, dir, floor) {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'move', x, y, dir }));
+        ws.send(JSON.stringify({ type: 'move', x, y, dir, floor }));
       }
     },
     close() {

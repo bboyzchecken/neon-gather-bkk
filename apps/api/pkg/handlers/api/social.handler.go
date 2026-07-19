@@ -34,10 +34,13 @@ func (s *Server) Cheers(c echo.Context) error {
 		return errJSON(c, http.StatusBadRequest, "cannot cheers with yourself")
 	}
 	// presence check: both connected, physically close in the live world
-	x1, y1, ok1 := s.Hub.Position(uid)
-	x2, y2, ok2 := s.Hub.Position(body.PlayerID)
+	x1, y1, f1, ok1 := s.Hub.Position(uid)
+	x2, y2, f2, ok2 := s.Hub.Position(body.PlayerID)
 	if !ok1 || !ok2 {
 		return errJSON(c, http.StatusBadRequest, "you both need to be in the avenue")
+	}
+	if f1 != f2 {
+		return errJSON(c, http.StatusBadRequest, "you are on different floors")
 	}
 	if !dsocial.WithinCheersRange(x1, y1, x2, y2) {
 		return errJSON(c, http.StatusBadRequest, "walk closer to cheers")

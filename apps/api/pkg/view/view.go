@@ -16,6 +16,7 @@ func Table(t models.DiningTable) ws.TableView {
 	return ws.TableView{
 		ID:        t.ID,
 		Code:      t.Code,
+		Floor:     t.Floor,
 		GridX:     t.GridX,
 		GridY:     t.GridY,
 		State:     t.State,

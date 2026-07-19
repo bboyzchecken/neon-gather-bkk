@@ -10,6 +10,7 @@ import (
 type Plot struct {
 	ID               string     `gorm:"primaryKey;size:36" json:"id"`
 	Code             string     `gorm:"uniqueIndex;size:16" json:"code"`
+	Floor            int        `gorm:"default:1;index" json:"floor"`
 	GridX            int        `json:"grid_x"`
 	GridY            int        `json:"grid_y"`
 	WidthTiles       int        `gorm:"default:4" json:"width_tiles"`

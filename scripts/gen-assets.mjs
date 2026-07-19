@@ -230,6 +230,9 @@ const ASSETS = [
   // ---- Phase 2 additions ----
   // display cabinet (library B6) — coaster showcase furniture
   A('prop_cabinet_01.png', 'world', 'a glass display cabinet with a dark forest-green steel frame and teak base, three empty glass shelves, warm interior lighting, standing upright against nothing.', { alpha: true }),
+  // Phase 3 — vertical transport
+  A('env_elevator_01.png', 'world', 'a compact interior elevator unit: dark forest-green metal double doors with a round brass floor-indicator dial above them, a warm cream surrounding frame with a teak base, and a small call-button panel beside the doors.', { alpha: true }),
+  A('env_stairs_01.png', 'world', 'a straight interior staircase rising from lower-left to upper-right: teak wood steps, a dark forest-green steel railing with thin balusters, a warm cream stringer side panel.', { alpha: true }),
   // chill lounge set + §5 gachapon (same B-series material language)
   A('prop_sofa_01.png', 'world', 'a low cozy lounge sofa set: a two-seat sofa with warm cream cushions on a teak wood frame, one matching armchair beside it, and a small round teak coffee table with a tiny potted succulent on top, arranged as one corner group.', { alpha: true, aspect: '16:9' }),
   A('prop_rug_01.png', 'world', 'a large flat oval area rug viewed at the same isometric angle as the floor, muted teal with a thin terracotta border and a subtle woven texture, lying perfectly flat on the ground, nothing on top of it.', { alpha: true, aspect: '16:9' }),

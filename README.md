@@ -1,4 +1,4 @@
-# Neon Gather BKK — Phase 1 (Community Depth)
+# Neon Gather BKK — Phase 3 (Scale & World Expansion)
 
 Cozy multiplayer community-mall web game. Phase 0 proved the core loop
 (**register → rent a plot → order at the bar → trade on the marketplace** with
@@ -106,6 +106,19 @@ The API container auto-migrates and seeds on boot.
 5. Open the **Dashboard** to buy from the marketplace, list your items for sale,
    or vendor-sell them; sales feed the weekly earnings leaderboard.
 6. Open a second browser (or the guest mode) to see avatars sync in realtime.
+
+## Testing the Phase 3 features
+
+1. **Three floors** — walk to the 🛗 elevator (right of the entrance) or 🪜
+   stairs (left wall, lower end), press **[E]** then **1-3**: G the Avenue,
+   2 Boutique Row (shops B-01..B-04), 3 Rooftop Garden. Players only see and
+   cheers with people on the SAME floor (server-checked).
+2. **Day/night** — the whole building re-lights with the clock (server TZ):
+   daylight + teal windows by day, warm dusk, and a blue night with glowing
+   windows and string lights. Append `?tod=day|dusk|night` to the game URL to
+   preview any phase.
+3. **Festival** — community quests "Maker Market" and "Memory Wall" pool the
+   whole server's crafting and photos each week.
 
 ## Testing the Phase 2 features
 

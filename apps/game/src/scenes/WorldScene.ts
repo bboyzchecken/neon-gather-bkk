@@ -32,16 +32,18 @@ interface TableViewObj {
 }
 
 /** Offline preview data (mirrors the seeder's wall-to-wall mall layout). */
-const DEMO_SLOTS: Array<[number, number]> = [
-  [2, 1], [6, 1], [14, 1], [18, 1], // top wall, flanking the entrance
-  [1, 6], [1, 10], // left wall
+const DEMO_SLOTS: Array<[number, number, number]> = [
+  [1, 2, 1], [1, 6, 1], [1, 14, 1], [1, 18, 1], // G: top wall, flanking the entrance
+  [1, 1, 6], [1, 1, 10], // G: left wall
+  [2, 2, 1], [2, 6, 1], [2, 14, 1], [2, 18, 1], // floor 2 boutique row
 ];
-const DEMO_PLOTS: Plot[] = DEMO_SLOTS.map(([gx, gy], i) => {
+const DEMO_PLOTS: Plot[] = DEMO_SLOTS.map(([floor, gx, gy], i) => {
   const templates = ['CAFE', 'VINTAGE', 'STREETFOOD'] as const;
   const rented = i === 1 || i === 4;
   return {
     id: `demo-${i}`,
-    code: `A-0${i + 1}`,
+    code: `${floor === 1 ? 'A' : 'B'}-0${(i % 6) + 1}`,
+    floor,
     grid_x: gx,
     grid_y: gy,
     width_tiles: 4,
@@ -61,6 +63,7 @@ const DEMO_TABLES: TableView[] = (['EMPTY', 'ORDERED', 'SERVED', 'COLLECTED'] as
   (state, i) => ({
     id: `demo-t-${i}`,
     code: `T-0${i + 1}`,
+    floor: 1,
     grid_x: 6 + i * 2,
     grid_y: 16,
     state,
@@ -77,6 +80,7 @@ const DEMO_VENDING: VendingMachineView[] = [
     plot_id: null,
     owner_id: 'npc',
     owner_name: 'Avenue Market',
+    floor: 1,
     grid_x: 18,
     grid_y: 16,
     slots: [
@@ -101,6 +105,28 @@ const CABINET = { gx: 22, gy: 15 };
 /** Chill lounge courtyard under the skylight (sofa + rug + gachapon). */
 const LOUNGE = { gx: 17.5, gy: 9.5 };
 const GACHA = { gx: 20.5, gy: 10.5 };
+
+/** Phase 3 — vertical transport spots (same on every floor). */
+const ELEVATOR = { gx: 22.6, gy: 1.15 };
+const STAIRS = { gx: 1.4, gy: 15.5 };
+const FLOOR_NAMES: Record<number, string> = {
+  1: 'G · The Avenue',
+  2: '2 · Boutique Row',
+  3: '3 · Rooftop Garden',
+};
+
+/** Day/night phase from the clock (server TZ == local here); ?tod= overrides
+ * for testing. Night mode = tint overlay + emissive accents per D0.6. */
+type TimePhase = 'day' | 'dusk' | 'night';
+function timePhase(): TimePhase {
+  const qs = new URLSearchParams(window.location.search).get('tod');
+  if (qs === 'day' || qs === 'dusk' || qs === 'night') return qs;
+  const h = new Date().getHours();
+  if (h >= 6 && h < 17) return 'day';
+  if (h >= 17 && h < 19) return 'dusk';
+  return 'night';
+}
+const SKY_COLOR: Record<TimePhase, number> = { day: 0x8fbcd6, dusk: 0x4a3050, night: 0x0b1424 };
 
 /** AutoServeBot home position (beside the bar counter). */
 const BOT_HOME: Cell = { gx: 14, gy: 17 };
@@ -158,6 +184,10 @@ export class WorldScene extends Phaser.Scene {
   private npcs: NpcView[] = [];
   private npcActor?: Phaser.GameObjects.Container;
   private nearNpcId?: string;
+  private floor = 1;
+  private phase: TimePhase = 'day';
+  private nearLift = false;
+  private floorPanel?: Phaser.GameObjects.Container;
   private blockedTiles = new Set<number>();
   private bot?: Phaser.GameObjects.Container;
   private botPos: Cell = { ...BOT_HOME };
@@ -169,17 +199,48 @@ export class WorldScene extends Phaser.Scene {
     super('World');
   }
 
-  init(data: { me: User; token: string; offline?: boolean }): void {
+  init(data: { me: User; token: string; offline?: boolean; floor?: number }): void {
     this.me = data.me;
     this.token = data.token;
     this.offline = data.offline ?? false;
     this.coins = data.me.coins;
-    this.pos = { gx: COLS / 2, gy: ROWS / 2 };
+    this.floor = data.floor ?? 1;
+    this.phase = timePhase();
+    // arriving on a floor puts you by the elevator (or hall centre on G)
+    this.pos =
+      this.floor === 1
+        ? { gx: COLS / 2, gy: ROWS / 2 }
+        : { gx: ELEVATOR.gx - 1.6, gy: ELEVATOR.gy + 1.8 };
+    // scene.restart leaves old references around — reset per-floor state
+    this.plotViews = [];
+    this.tableViews = new Map();
+    this.vendingViews = new Map();
+    this.others = new Map();
+    this.blockedTiles = new Set();
+    this.botQueue = [];
+    this.botPath = [];
+    this.botState = 'idle';
+    this.botPos = { ...BOT_HOME };
+    this.bot = undefined;
+    this.npcActor = undefined;
+    this.coasterPanel = undefined;
+    this.vendingPanel = undefined;
+    this.floorPanel = undefined;
+    this.questPanel = undefined;
+    this.ambientG = undefined;
+    this.groundRT = undefined;
+    this.photoMode = false;
+    this.photoBackdrop = undefined;
   }
 
   create(): void {
+    this.cameras.main.setBackgroundColor(SKY_COLOR[this.phase]);
     this.drawGround();
-    this.drawInteriorShell();
+    if (this.floor === 3) {
+      this.drawRooftopShell();
+    } else {
+      this.drawInteriorShell();
+    }
     this.drawDecor();
     this.createAvatar();
     this.createHud();
@@ -191,25 +252,121 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
     this.cameras.main.startFollow(this.avatar, true, 0.1, 0.1);
 
-    this.placePhotoBooth();
-    this.createBot();
+    if (this.floor === 1) {
+      this.placePhotoBooth();
+      this.createBot();
+    }
+    this.placeLifts();
     this.createQuestPanel();
 
     if (this.offline) {
-      DEMO_PLOTS.forEach((p) => this.drawPlot(p));
-      DEMO_TABLES.forEach((t) => this.upsertTable(t));
-      DEMO_VENDING.forEach((m) => this.upsertVending(m));
-      // let the bot demo its serve/clean walk on the preview tables
-      DEMO_TABLES.forEach((t) => this.onTableForBot(t));
+      DEMO_PLOTS.filter((p) => p.floor === this.floor).forEach((p) => this.drawPlot(p));
+      if (this.floor === 1) {
+        DEMO_TABLES.forEach((t) => this.upsertTable(t));
+        DEMO_VENDING.forEach((m) => this.upsertVending(m));
+        // let the bot demo its serve/clean walk on the preview tables
+        DEMO_TABLES.forEach((t) => this.onTableForBot(t));
+      }
       this.toast('Offline preview — start the API for full play', 0x8a5a2b);
     } else {
       void this.loadPlots();
       void this.loadVending();
       void this.loadQuests();
-      void this.loadNpcs();
+      if (this.floor === 1) void this.loadNpcs();
       this.connectSocket();
+      // announce our floor right away so others filter us correctly
+      this.time.delayedCall(600, () =>
+        this.ws?.sendMove(this.pos.gx, this.pos.gy, this.dir, this.floor),
+      );
     }
+    // re-light when the time-of-day phase flips (day → dusk → night)
+    this.time.addEvent({
+      delay: 60_000,
+      loop: true,
+      callback: () => {
+        if (timePhase() !== this.phase) {
+          this.scene.restart({
+            me: this.me,
+            token: this.token,
+            offline: this.offline,
+            floor: this.floor,
+          });
+        }
+      },
+    });
     this.events.once('shutdown', () => this.ws?.close());
+  }
+
+  /** Elevator + stairs (same spots on every floor) — [E] opens the panel. */
+  private placeLifts(): void {
+    this.placeProp('elevator', ELEVATOR.gx, ELEVATOR.gy + 0.9, TILE_W * 1.05);
+    this.placeProp('stairs', STAIRS.gx + 0.4, STAIRS.gy + 0.6, TILE_W * 1.5);
+    const label = (gx: number, gy: number, text: string): void => {
+      const c = isoPos(gx, gy);
+      this.add
+        .text(c.x, c.y + TILE_H * 0.35, text, {
+          color: '#ffffff',
+          fontSize: '12px',
+          backgroundColor: '#00000099',
+          padding: { x: 4, y: 1 },
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(9000);
+    };
+    label(ELEVATOR.gx, ELEVATOR.gy + 1, `🛗 ${FLOOR_NAMES[this.floor]}`);
+    label(STAIRS.gx + 0.4, STAIRS.gy + 0.8, '🪜 stairs');
+  }
+
+  private closeFloorPanel(): void {
+    this.floorPanel?.destroy();
+    this.floorPanel = undefined;
+  }
+
+  private openFloorPanel(): void {
+    this.closeFloorPanel();
+    const lines = [1, 2, 3].map(
+      (f) => `[${f}] ${FLOOR_NAMES[f]}${f === this.floor ? '  ← here' : ''}`,
+    );
+    const w = 280;
+    const h = 64 + lines.length * 24;
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.18);
+    g.fillRoundedRect(4, 6, w, h, 14);
+    g.fillStyle(0xf5ead7, 0.97);
+    g.lineStyle(3, 0x1e3d34, 1);
+    g.fillRoundedRect(0, 0, w, h, 14);
+    g.strokeRoundedRect(0, 0, w, h, 14);
+    const title = this.add.text(14, 10, '🛗 Where to?', {
+      color: '#1e3d34',
+      fontSize: '15px',
+      fontStyle: 'bold',
+    });
+    const items = this.add.text(14, 38, lines.join('\n'), {
+      color: '#41372a',
+      fontSize: '13px',
+      lineSpacing: 10,
+    });
+    const foot = this.add.text(14, h - 20, 'press 1-3 · [E] close', {
+      color: '#8a5a2b',
+      fontSize: '11px',
+    });
+    this.floorPanel = this.add
+      .container(this.scale.width / 2 - w / 2, this.scale.height / 2 - h / 2, [
+        g,
+        title,
+        items,
+        foot,
+      ])
+      .setScrollFactor(0)
+      .setDepth(10001);
+  }
+
+  private switchFloor(target: number): void {
+    if (target === this.floor || target < 1 || target > 3) {
+      this.closeFloorPanel();
+      return;
+    }
+    this.scene.restart({ me: this.me, token: this.token, offline: this.offline, floor: target });
   }
 
   private tex(key: string): boolean {
@@ -255,16 +412,20 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private drawGround(): void {
-    // Interior hall: polished concrete everywhere, terracotta walkway cross
-    // (entrance corridor + food-court promenade) guiding the flow.
+    // Per-floor materials: G = concrete hall + terracotta walkways,
+    // 2 = warm teak boutique level + concrete corridor,
+    // 3 = rooftop concrete deck + terracotta garden paths.
     const conc = this.makeIsoFloor('floor_concrete');
     const terra = this.makeIsoFloor('floor_terracotta');
-    if (conc || terra) {
+    const teak = this.makeIsoFloor('floor_teak');
+    if (conc || terra || teak) {
       this.groundRT = this.add.renderTexture(0, 0, WORLD_W, WORLD_H).setOrigin(0).setDepth(0);
-      if (conc) this.blitFloor(conc, 0, 0, COLS, ROWS);
-      if (terra) {
-        this.blitFloor(terra, ENTRANCE.start, 1, ENTRANCE.width, ROWS - 1);
-        this.blitFloor(terra, 1, 14, COLS - 1, 4);
+      const base = this.floor === 2 ? teak : conc;
+      const path = this.floor === 2 ? conc : terra;
+      if (base) this.blitFloor(base, 0, 0, COLS, ROWS);
+      if (path) {
+        this.blitFloor(path, ENTRANCE.start, 1, ENTRANCE.width, ROWS - 1);
+        this.blitFloor(path, 1, 14, COLS - 1, 4);
       }
     } else {
       // fallback: flat-shaded diamonds
@@ -317,8 +478,17 @@ export class WorldScene extends Phaser.Scene {
       quad(a, b, 0, 1, 0, WALL_H, face); // face
       if (kind === 'window') {
         quad(a, b, 0.2, 0.8, 74, 148, 0x1e3d34); // frame
-        quad(a, b, 0.24, 0.76, 80, 142, 0x9fd3cd, 0.95); // glass
-        quad(a, b, 0.24, 0.76, 80, 111, 0xc3e6e1, 0.5); // sky sheen
+        if (this.phase === 'night') {
+          // emissive layer: windows glow warm after dark (D0.6 night mode)
+          quad(a, b, 0.24, 0.76, 80, 142, 0xffdf9e, 0.9);
+          quad(a, b, 0.24, 0.76, 80, 111, 0xfff3d0, 0.5);
+        } else if (this.phase === 'dusk') {
+          quad(a, b, 0.24, 0.76, 80, 142, 0xf0b48a, 0.9);
+          quad(a, b, 0.24, 0.76, 80, 111, 0xffd9b0, 0.5);
+        } else {
+          quad(a, b, 0.24, 0.76, 80, 142, 0x9fd3cd, 0.95); // glass
+          quad(a, b, 0.24, 0.76, 80, 111, 0xc3e6e1, 0.5); // sky sheen
+        }
       }
       if (kind === 'door') {
         quad(a, b, 0.04, 0.96, 0, 152, 0x1e3d34); // door frame
@@ -334,11 +504,12 @@ export class WorldScene extends Phaser.Scene {
     };
 
     // north-east wall (gy = 0) with the entrance doors — windows every other
-    // bay keep the room airy (chill-lounge direction)
+    // bay keep the room airy (chill-lounge direction). Doors only on G.
     for (let gx = 0; gx < COLS; gx++) {
       const a = isoPos(gx, 0);
       const b = isoPos(gx + 1, 0);
-      const inDoor = gx >= ENTRANCE.start && gx < ENTRANCE.start + ENTRANCE.width;
+      const inDoor =
+        this.floor === 1 && gx >= ENTRANCE.start && gx < ENTRANCE.start + ENTRANCE.width;
       bay(a, b, 0xe6d5b8, inDoor ? 'door' : gx % 2 === 0 ? 'window' : 'plain');
     }
     // north-west wall (gx = 0)
@@ -355,18 +526,21 @@ export class WorldScene extends Phaser.Scene {
       column(isoPos(0, gy), isoPos(0, gy + 1));
     }
 
-    // warm light spill on the floor inside the entrance
-    const doorMid = isoPos(ENTRANCE.start + ENTRANCE.width / 2, 0.9);
-    g.fillStyle(0xffdf9e, 0.12);
-    g.fillEllipse(doorMid.x, doorMid.y + 26, TILE_W * 3.4, TILE_H * 2.6);
+    if (this.floor === 1) {
+      // warm light spill on the floor inside the entrance
+      const doorMid = isoPos(ENTRANCE.start + ENTRANCE.width / 2, 0.9);
+      g.fillStyle(0xffdf9e, this.phase === 'night' ? 0.2 : 0.12);
+      g.fillEllipse(doorMid.x, doorMid.y + 26, TILE_W * 3.4, TILE_H * 2.6);
 
-    // skylight light-well over the lounge courtyard — daylight pooling in
-    // the middle keeps the enclosed hall feeling open and chill
-    const sky = isoPos(LOUNGE.gx, LOUNGE.gy);
-    g.fillStyle(0xfff3d0, 0.07);
-    g.fillEllipse(sky.x, sky.y, TILE_W * 7.5, TILE_H * 6.5);
-    g.fillStyle(0xfff8e2, 0.08);
-    g.fillEllipse(sky.x, sky.y, TILE_W * 4.5, TILE_H * 3.8);
+      // skylight light-well over the lounge courtyard — daylight (or
+      // moonlight) pooling keeps the enclosed hall feeling open and chill
+      const sky = isoPos(LOUNGE.gx, LOUNGE.gy);
+      const wellColor = this.phase === 'day' ? 0xfff3d0 : this.phase === 'dusk' ? 0xffc9a0 : 0xbcd2ff;
+      g.fillStyle(wellColor, 0.07);
+      g.fillEllipse(sky.x, sky.y, TILE_W * 7.5, TILE_H * 6.5);
+      g.fillStyle(wellColor, 0.08);
+      g.fillEllipse(sky.x, sky.y, TILE_W * 4.5, TILE_H * 3.8);
+    }
 
     this.drawStringLights(g);
 
@@ -424,11 +598,84 @@ export class WorldScene extends Phaser.Scene {
       const pts = curve.getPoints(26);
       g.lineStyle(2, 0x2c241a, 0.55);
       g.strokePoints(pts, false);
+      const glowA = this.phase === 'day' ? 0.12 : 0.3;
+      const bulbA = this.phase === 'day' ? 0.55 : 1;
       pts.forEach((p, i) => {
         if (i % 2 === 0) {
-          g.fillStyle(0xffd98a, 0.22);
-          g.fillCircle(p.x, p.y + 3, 7);
-          g.fillStyle(0xffe9b0, 0.95);
+          g.fillStyle(0xffd98a, glowA);
+          g.fillCircle(p.x, p.y + 3, this.phase === 'day' ? 7 : 9);
+          g.fillStyle(0xffe9b0, bulbA);
+          g.fillCircle(p.x, p.y + 3, 3);
+        }
+      });
+    }
+  }
+
+  /** Rooftop garden (floor 3): open sky, low parapet on every edge, dense
+   * string lights — no tall walls up here. */
+  private drawRooftopShell(): void {
+    const f = this.add.graphics().setDepth(8000);
+    const back = this.add.graphics().setDepth(1);
+    const LOW = 40;
+    const quad = (
+      g: Phaser.GameObjects.Graphics,
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      h0: number,
+      h1: number,
+      color: number,
+    ): void => {
+      g.fillStyle(color, 1);
+      g.fillPoints(
+        [
+          new Phaser.Geom.Point(a.x, a.y - h1),
+          new Phaser.Geom.Point(b.x, b.y - h1),
+          new Phaser.Geom.Point(b.x, b.y - h0),
+          new Phaser.Geom.Point(a.x, a.y - h0),
+        ],
+        true,
+      );
+    };
+    const parapet = (
+      g: Phaser.GameObjects.Graphics,
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      face: number,
+    ): void => {
+      quad(g, a, b, 0, LOW, face);
+      quad(g, a, b, LOW - 7, LOW, 0x8a5a2b); // teak cap rail
+      quad(g, a, b, 0, 6, 0x16302a);
+    };
+    // back edges (behind everything) + front edges (closest to camera)
+    for (let gx = 0; gx < COLS; gx++) {
+      parapet(back, isoPos(gx, 0), isoPos(gx + 1, 0), 0xe6d5b8);
+      parapet(f, isoPos(gx, ROWS), isoPos(gx + 1, ROWS), 0xf2e6cf);
+    }
+    for (let gy = 0; gy < ROWS; gy++) {
+      parapet(back, isoPos(0, gy), isoPos(0, gy + 1), 0xf2e6cf);
+      parapet(f, isoPos(COLS, gy), isoPos(COLS, gy + 1), 0xe6d5b8);
+    }
+    // dense festoon lighting — the rooftop signature
+    const g = this.add.graphics().setDepth(2);
+    this.drawStringLights(g);
+    for (const c of [8, 16]) {
+      const s = isoPos(c, 0.4);
+      const e = isoPos(0.4, c);
+      const start = new Phaser.Math.Vector2(s.x, s.y - LOW - 90);
+      const end = new Phaser.Math.Vector2(e.x, e.y - LOW - 90);
+      const mid = new Phaser.Math.Vector2(
+        (start.x + end.x) / 2,
+        Math.max(start.y, end.y) + 70,
+      );
+      const pts = new Phaser.Curves.QuadraticBezier(start, mid, end).getPoints(24);
+      g.lineStyle(2, 0x2c241a, 0.55);
+      g.strokePoints(pts, false);
+      const bulbAlpha = this.phase === 'day' ? 0.35 : 1;
+      pts.forEach((p, i) => {
+        if (i % 2 === 0) {
+          g.fillStyle(0xffd98a, this.phase === 'day' ? 0.1 : 0.3);
+          g.fillCircle(p.x, p.y + 3, 8);
+          g.fillStyle(0xffe9b0, bulbAlpha);
           g.fillCircle(p.x, p.y + 3, 3);
         }
       });
@@ -442,9 +689,17 @@ export class WorldScene extends Phaser.Scene {
       const w = this.scale.width;
       const h = this.scale.height;
       const g = this.add.graphics().setScrollFactor(0).setDepth(9998);
-      // kept light on purpose: cozy, not cramped (chill-lounge direction)
+      // kept light on purpose: cozy, not cramped (chill-lounge direction).
+      // Night mode adds the D0.6 blue-green tint layer on top.
       g.fillStyle(0x1a1006, 0.045);
       g.fillRect(0, 0, w, h);
+      if (this.phase === 'night') {
+        g.fillStyle(0x0e1c33, this.floor === 3 ? 0.22 : 0.3);
+        g.fillRect(0, 0, w, h);
+      } else if (this.phase === 'dusk') {
+        g.fillStyle(0xcc5a2a, 0.1);
+        g.fillRect(0, 0, w, h);
+      }
       // faked gradient vignette: two soft bands per edge
       const bands: Array<[number, number]> = [
         [14, 0.09],
@@ -484,6 +739,42 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private drawDecor(): void {
+    if (this.floor === 2) {
+      // boutique level: quiet corridor of planters
+      const plants2: Array<[number, number, string]> = [
+        [3.4, 6.6, 'plant_monstera'],
+        [8.4, 6.6, 'plant_fern'],
+        [15.4, 6.6, 'plant_banana'],
+        [20.4, 6.6, 'plant_monstera'],
+        [6.5, 18.5, 'plant_fern'],
+        [17.5, 18.5, 'plant_banana'],
+      ];
+      plants2.forEach(([gx, gy, key]) => this.placeProp(key, gx, gy, TILE_W * 0.62));
+      return;
+    }
+    if (this.floor === 3) {
+      // rooftop garden: lounge under the sky + lots of green
+      if (this.tex('rug')) {
+        const r = isoPos(10.5, 10.8);
+        const rug = this.add.image(r.x, r.y, 'rug').setOrigin(0.5).setDepth(1.5);
+        rug.setDisplaySize(TILE_W * 3.4, (TILE_W * 3.4 * rug.height) / rug.width);
+      }
+      this.placeProp('sofa', 10.5, 10.5, TILE_W * 2.1);
+      const garden: Array<[number, number, string]> = [
+        [4.5, 4.5, 'plant_banana'],
+        [7.5, 3.5, 'plant_monstera'],
+        [12.5, 4.5, 'plant_fern'],
+        [17.5, 5.5, 'plant_banana'],
+        [20.5, 8.5, 'plant_monstera'],
+        [4.5, 12.5, 'plant_fern'],
+        [6.5, 17.5, 'plant_banana'],
+        [12.5, 19.5, 'plant_monstera'],
+        [18.5, 16.5, 'plant_fern'],
+        [20.5, 19.5, 'plant_banana'],
+      ];
+      garden.forEach(([gx, gy, key]) => this.placeProp(key, gx, gy, TILE_W * 0.62));
+      return;
+    }
     this.placeProp('counter_bar', 15.6, 16.2, TILE_W * 2.9);
     // lounge courtyard: flat rug hugs the floor, sofa group on top
     if (this.tex('rug')) {
@@ -574,7 +865,7 @@ export class WorldScene extends Phaser.Scene {
   private updateHud(): void {
     const mode = this.offline ? '  ·  OFFLINE PREVIEW' : '';
     this.hud.setText(
-      `${this.me.display_name}   💰 ${this.coins}${mode}\nWASD/Arrows move · click plot to rent · [E] tables/vending/booth · [Q] quests`,
+      `${this.me.display_name}   💰 ${this.coins}   🏢 ${FLOOR_NAMES[this.floor]}${mode}\nWASD/Arrows move · click plot to rent · [E] interact · [Q] quests`,
     );
   }
 
@@ -601,6 +892,7 @@ export class WorldScene extends Phaser.Scene {
     kb.on('keydown-ESC', () => {
       this.exitPhotoMode();
       this.closeCoasterPanel();
+      this.closeFloorPanel();
     });
     kb.on('keydown-SPACE', () => void this.onCapturePhoto());
     for (let n = 1; n <= 4; n++) {
@@ -609,6 +901,10 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private async onDigit(n: number): Promise<void> {
+    if (this.floorPanel) {
+      if (n <= 3) this.switchFloor(n);
+      return;
+    }
     if (this.photoMode) {
       if (n <= PHOTO_BACKDROPS.length) {
         this.photoBackdropIdx = n - 1;
@@ -625,7 +921,7 @@ export class WorldScene extends Phaser.Scene {
   private async loadPlots(): Promise<void> {
     try {
       const plots = await api.plots();
-      plots.forEach((p) => this.drawPlot(p));
+      plots.filter((p) => p.floor === this.floor).forEach((p) => this.drawPlot(p));
     } catch {
       this.toast('Failed to load plots', 0xcc4444);
     }
@@ -816,7 +1112,7 @@ export class WorldScene extends Phaser.Scene {
   private onServer(msg: ServerMessage): void {
     switch (msg.type) {
       case 'snapshot':
-        msg.tables.forEach((t) => this.upsertTable(t));
+        msg.tables.filter((t) => t.floor === this.floor).forEach((t) => this.upsertTable(t));
         msg.players.forEach((p) => {
           if (p.id !== this.me.id) this.upsertOther(p);
         });
@@ -829,8 +1125,10 @@ export class WorldScene extends Phaser.Scene {
         this.removeOther(msg.id);
         break;
       case 'table_updated':
-        this.upsertTable(msg.table);
-        this.onTableForBot(msg.table);
+        if (msg.table.floor === this.floor) {
+          this.upsertTable(msg.table);
+          this.onTableForBot(msg.table);
+        }
         break;
       case 'job_level_up':
         this.toast(`🎉 ${msg.job_type} reached Lv.${msg.level}!`, 0x2ea36a);
@@ -894,6 +1192,11 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private upsertOther(p: PlayerState): void {
+    // players on other floors are simply not here
+    if ((p.floor || 1) !== this.floor) {
+      this.removeOther(p.id);
+      return;
+    }
     let o = this.others.get(p.id);
     if (!o) {
       o = { c: this.makeActor(0xffd27f, p.display_name), gx: p.x, gy: p.y };
@@ -972,6 +1275,14 @@ export class WorldScene extends Phaser.Scene {
   // ---------- actions ----------
   private async onInteract(): Promise<void> {
     if (this.photoMode) return; // SPACE captures, ESC exits
+    if (this.floorPanel) {
+      this.closeFloorPanel();
+      return;
+    }
+    if (this.nearLift) {
+      this.openFloorPanel();
+      return;
+    }
     if (this.coasterPanel) {
       this.closeCoasterPanel();
       return;
@@ -1200,7 +1511,7 @@ export class WorldScene extends Phaser.Scene {
   private async loadVending(): Promise<void> {
     try {
       const machines = await api.vending();
-      machines.forEach((m) => this.upsertVending(m));
+      machines.filter((m) => m.floor === this.floor).forEach((m) => this.upsertVending(m));
     } catch {
       /* vending list is non-critical */
     }
@@ -1631,7 +1942,7 @@ export class WorldScene extends Phaser.Scene {
       this.dir = Math.abs(ix) >= Math.abs(iy) ? (ix > 0 ? 'right' : 'left') : iy > 0 ? 'down' : 'up';
       if (!this.offline && time - this.lastSent > 80) {
         this.lastSent = time;
-        this.ws?.sendMove(this.pos.gx, this.pos.gy, this.dir);
+        this.ws?.sendMove(this.pos.gx, this.pos.gy, this.dir, this.floor);
       }
     }
     this.stepBot(dt);
@@ -1660,17 +1971,24 @@ export class WorldScene extends Phaser.Scene {
     if (this.nearMachineId && nearMachine !== this.nearMachineId) this.closeVendingPanel();
     this.nearMachineId = nearMachine;
 
+    const onG = this.floor === 1;
     const bc = { x: BOOTH.gx + BOOTH.w / 2, y: BOOTH.gy + BOOTH.h / 2 };
-    this.nearBooth = Math.hypot(this.pos.gx - bc.x, this.pos.gy - bc.y) < 2.2;
+    this.nearBooth = onG && Math.hypot(this.pos.gx - bc.x, this.pos.gy - bc.y) < 2.2;
     if (!this.nearBooth && this.photoMode) this.exitPhotoMode();
 
     const wasNearCabinet = this.nearCabinet;
     this.nearCabinet =
-      Math.hypot(this.pos.gx - (CABINET.gx + 0.5), this.pos.gy - (CABINET.gy + 0.5)) < 1.8;
+      onG && Math.hypot(this.pos.gx - (CABINET.gx + 0.5), this.pos.gy - (CABINET.gy + 0.5)) < 1.8;
     if (wasNearCabinet && !this.nearCabinet) this.closeCoasterPanel();
 
     this.nearGacha =
-      Math.hypot(this.pos.gx - (GACHA.gx + 0.5), this.pos.gy - (GACHA.gy + 0.5)) < 1.6;
+      onG && Math.hypot(this.pos.gx - (GACHA.gx + 0.5), this.pos.gy - (GACHA.gy + 0.5)) < 1.6;
+
+    const wasNearLift = this.nearLift;
+    this.nearLift =
+      Math.hypot(this.pos.gx - ELEVATOR.gx, this.pos.gy - (ELEVATOR.gy + 1)) < 2.0 ||
+      Math.hypot(this.pos.gx - (STAIRS.gx + 0.4), this.pos.gy - (STAIRS.gy + 0.6)) < 2.0;
+    if (wasNearLift && !this.nearLift) this.closeFloorPanel();
 
     this.nearNpcId = undefined;
     if (this.npcActor) {
@@ -1697,6 +2015,10 @@ export class WorldScene extends Phaser.Scene {
     let h = '';
     if (this.photoMode) {
       h = '📸 1-3 backdrop · SPACE shoot · ESC exit';
+    } else if (this.floorPanel) {
+      h = '🛗 press 1-3 to travel · [E] close';
+    } else if (this.nearLift) {
+      h = '[E] Elevator / stairs';
     } else if (this.nearCabinet) {
       h = this.coasterPanel ? '[E] close collection' : '[E] Coaster collection';
     } else if (this.nearGacha) {
@@ -1715,6 +2037,7 @@ export class WorldScene extends Phaser.Scene {
       h = '[E] Photo booth';
     } else if (
       !this.offline &&
+      this.floor === 1 &&
       this.pos.gx >= 13 &&
       this.pos.gy >= 7 &&
       this.pos.gy <= 20
