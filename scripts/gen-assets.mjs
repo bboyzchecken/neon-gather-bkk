@@ -17,6 +17,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GAME_ASSETS = path.join(ROOT, 'apps', 'game', 'public', 'assets');
 const WEB_ICONS = path.join(ROOT, 'apps', 'web', 'public', 'assets', 'icons');
 const REF_PATH = path.join(ROOT, '_STYLE_REF_day.png');
+// second anchor for the D3.5 open-neighbourhood set (owner-approved look:
+// exposed black steel frame, planter-lined walkways, golden-hour warmth)
+const SOI_REF_PATH = path.join(ROOT, '_STYLE_REF_soi.png');
 const LOG_PATH = path.join(ROOT, 'ASSET_PROMPTS_LOG.md');
 
 const API = 'https://api.bfl.ai';
@@ -107,6 +110,7 @@ async function whiteToAlpha(buf) {
     data[i + 3] = 0;
     stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
   }
+  defringeRaw(data, w, h);
   // opaque bounding box (with padding) so sprites have no wasted margins
   let minX = w, minY = h, maxX = -1, maxY = -1;
   for (let y = 0; y < h; y++) {
@@ -127,6 +131,45 @@ async function whiteToAlpha(buf) {
   const height = Math.min(h, maxY + pad + 1) - top;
   return sharp(data, { raw: { width: w, height: h, channels: 4 } })
     .extract({ left, top, width, height })
+    .png()
+    .toBuffer();
+}
+
+/** Peel the 1-3px pale halo the flood fill leaves at anti-aliased sprite
+ * edges (the "white seams" in-game). Bright low-saturation pixels touching
+ * transparency are removed, a few rounds deep — dark outlines stop the peel
+ * at the real silhouette. */
+function defringeRaw(data, w, h) {
+  const idx = (x, y) => (y * w + x) * 4;
+  for (let round = 0; round < 3; round++) {
+    const kill = [];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = idx(x, y);
+        if (data[i + 3] === 0) continue;
+        const clearNext =
+          (x > 0 && data[idx(x - 1, y) + 3] === 0) ||
+          (x < w - 1 && data[idx(x + 1, y) + 3] === 0) ||
+          (y > 0 && data[idx(x, y - 1) + 3] === 0) ||
+          (y < h - 1 && data[idx(x, y + 1) + 3] === 0);
+        if (!clearNext) continue;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const mn = Math.min(r, g, b);
+        const mx = Math.max(r, g, b);
+        if (mx >= 200 && mx - mn <= 60) kill.push(i);
+      }
+    }
+    if (!kill.length) break;
+    for (const i of kill) data[i + 3] = 0;
+  }
+}
+
+/** Defringe an already-processed transparent PNG in place (for assets whose
+ * raw output predates .asset-raw and can't be fully re-processed). */
+async function defringeExisting(buf) {
+  const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  defringeRaw(data, info.width, info.height);
+  return sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
     .png()
     .toBuffer();
 }
@@ -176,6 +219,21 @@ const ANCHOR_PROMPT =
   'sitting and chatting. Clean readable composition. ' +
   STYLE;
 
+// Matches the owner's approved reference (2026-07-19): Seenspace-style
+// open-frame corner building, dense planters, golden-hour light.
+const SOI_ANCHOR_PROMPT =
+  'Isometric view of a modern two-story community mall on a Bangkok street corner at golden ' +
+  'hour. Exposed dark charcoal steel frame structure with open-air upper terraces behind slim ' +
+  'black metal railings, every terrace edge lined with terracotta pots of monstera, banana ' +
+  'plants and ferns. A leafy green courtyard tree grows up through the central atrium. Warm ' +
+  'cream concrete walls with terracotta accent panels and blank rectangular sign boards. ' +
+  'Ground floor: an open cafe with wooden tables, a vending machine by the entrance, rows of ' +
+  'terracotta planters along the sidewalk with small bollards at the kerb of a dark asphalt ' +
+  'road. A few small stylized people strolling and sitting. Warm late-afternoon golden light ' +
+  'washing over everything. Clean isometric game art illustration with even-weight dark ' +
+  'charcoal linework, flat colour fills with soft subtle shading. Warm Southeast Asian urban ' +
+  'palette. Cozy, calm, inviting. No readable text, no lettering, no watermark.';
+
 // ------------------------------------------------------------ asset manifest
 const A = (file, dir, desc, opts = {}) => ({
   file,
@@ -186,14 +244,16 @@ const A = (file, dir, desc, opts = {}) => ({
   size: opts.size,
   copyToWeb: opts.copyToWeb ?? false,
   tech: opts.tech ?? WORLD_TECH,
+  ref: opts.ref ?? 'day', // which style anchor to attach: 'day' | 'soi'
 });
 
 const ASSETS = [
-  // A. facades (world sprites)
-  A('env_facade_empty_01.png', 'world', 'an empty rentable shop unit facade: plain warm cream concrete frame with dark forest-green steel posts, a closed roll-down metal shutter, a blank rectangular sign panel above the entrance, a low concrete step, one potted monstera beside the doorway.', { alpha: true }),
-  A('env_facade_a_01.png', 'world', 'a small modern cafe shop facade: floor-to-ceiling glass front with dark forest-green steel frame, a blank rectangular sign panel above the door, a simple flat awning, two potted tropical plants flanking the entrance, a hint of warm interior visible through the glass.', { alpha: true }),
-  A('env_facade_b_01.png', 'world', 'a small vintage shop facade with a teak wood front, a blank hand-painted sign board above, a striped fabric awning, wooden shutters folded open, a wooden crate and a fern in a terracotta pot beside the entrance.', { alpha: true }),
-  A('env_facade_c_01.png', 'world', 'a small Thai street-food stall facade: a stainless steel counter facing the walkway, a corrugated metal awning, a blank menu board panel above, stacked plastic stools beside it, a banana plant in a terracotta pot at the corner.', { alpha: true }),
+  // A. facades (world sprites) — reworked 2026-07-19 on the soi anchor:
+  // exposed black steel frames per the owner's open-frame reference
+  A('env_facade_empty_01.png', 'world', 'an empty rentable shop unit: an exposed matte black steel post-and-beam frame with a warm cream concrete base, a closed roll-down metal shutter between the black posts, a blank rectangular sign panel mounted on the black beam above, a low concrete step, one potted monstera beside the doorway.', { alpha: true, ref: 'soi' }),
+  A('env_facade_a_01.png', 'world', 'a small modern cafe storefront: an exposed matte black steel frame with floor-to-ceiling glass between the posts, a blank rectangular sign panel on the black beam above the door, a slim black-framed awning, two potted tropical plants flanking the entrance, warm interior light visible through the glass.', { alpha: true, ref: 'soi' }),
+  A('env_facade_b_01.png', 'world', 'a small vintage shop storefront: an exposed matte black steel frame with a teak wood front infill, a blank hand-painted sign board hung on the black beam above, a striped fabric awning, wooden shutters folded open, a wooden crate and a fern in a terracotta pot beside the entrance.', { alpha: true, ref: 'soi' }),
+  A('env_facade_c_01.png', 'world', 'a small Thai street-food stall: an exposed matte black steel frame with a stainless steel counter facing the walkway, a corrugated metal awning resting on the black frame, a blank menu board panel above, stacked plastic stools beside it, a banana plant in a terracotta pot at the corner.', { alpha: true, ref: 'soi' }),
   // B. furniture / props
   A('prop_table_round_01.png', 'world', 'a small round teak cafe table with two matching teak chairs.', { alpha: true }),
   A('prop_table_bar_01.png', 'world', 'a tall teak bar table with two wooden stools.', { alpha: true }),
@@ -246,6 +306,20 @@ const ASSETS = [
   // coasters (library D1/D2) — 256×256 collectibles, also served by the web app
   A('coaster_blank_01.png', 'coasters', 'a blank circular drink coaster viewed perfectly flat from directly above, plain warm cream surface with a thin dark border ring, subtle pressed paper texture, no design in the center.', { alpha: true, size: 256, copyToWeb: true, tech: 'Perfectly flat top-down view of a single round coaster, centered, on a solid pure white background, no other objects, no shadow.' }),
   A('coaster_opening_01.png', 'coasters', 'a circular drink coaster viewed perfectly flat from directly above: deep forest-green background with an ornate gold foil border ring and a small abstract geometric emblem in the center, premium embossed finish, subtle metallic sheen.', { alpha: true, size: 256, copyToWeb: true, tech: 'Perfectly flat top-down view of a single round coaster, centered, on a solid pure white background, no other objects, no shadow.' }),
+  // ---- Phase 3c — D3.5 Sims-open surroundings (soi anchor) ----
+  // neighbour buildings for the back-edge skyline (big painted backdrops)
+  A('env_backdrop_shophouse_a_01.png', 'world', 'a three-story Bangkok shophouse building seen straight on: warm cream concrete facade, exposed dark charcoal steel frame, open balconies with slim black metal railings lined with terracotta pots of tropical plants, warm lit windows, a blank sign board, a roll-up shop shutter at street level, an air-conditioning unit on one wall.', { alpha: true, ref: 'soi' }),
+  A('env_backdrop_shophouse_b_01.png', 'world', 'a three-story Bangkok shophouse building seen straight on: terracotta-painted facade with warm cream trim, dark steel-framed balconies crowded with monstera and banana plants in terracotta pots, folding wooden shutters, a striped fabric awning over the ground floor, a blank vertical sign board on the corner.', { alpha: true, ref: 'soi' }),
+  A('env_backdrop_tower_01.png', 'world', 'a slim modern condominium tower seen straight on: warm cream and muted teal facade, a regular grid of windows with a few balconies holding potted plants, a dark steel crown with a rooftop water tank, warm lit windows scattered across the floors.', { alpha: true, aspect: '9:16', ref: 'soi' }),
+  // street furniture (front edges)
+  A('prop_tree_street_01.png', 'world', 'a tall tropical rain tree with a slender dark trunk and a wide lush layered green canopy, growing from a low round concrete kerb planter.', { alpha: true, ref: 'soi' }),
+  A('prop_lamp_street_01.png', 'world', 'a Bangkok street lamp: a tall dark charcoal steel pole with a single curved arm holding a warm glowing lamp head, a small blank banner bracket midway up the pole.', { alpha: true, aspect: '9:16', ref: 'soi' }),
+  A('prop_planter_row_01.png', 'world', 'a straight row of five assorted terracotta pots standing directly on the ground, holding a monstera, a parlor palm, a boston fern, a snake plant and a trailing pothos, slightly different pot heights. Leafy green plants only — no fruit, no bananas, no pedestals, no platforms, no steps, no boxes under the pots.', { alpha: true, aspect: '16:9', ref: 'soi' }),
+  A('prop_scooter_01.png', 'world', 'a parked pastel mint motor scooter with a warm cream seat, resting on its kickstand, a small delivery basket on the back.', { alpha: true, ref: 'soi' }),
+  // surrounding ground materials (opaque, tileable)
+  A('env_floor_asphalt_01.png', 'floors', 'plain dark warm grey asphalt road surface with very subtle aggregate texture only — absolutely no markings, no objects, no shadows, just the bare asphalt.', { tech: FLOOR_TECH, size: 512, ref: 'soi' }),
+  A('env_floor_pavers_01.png', 'floors', 'plain warm grey concrete sidewalk paver tiles in a simple square grid only — absolutely no plants, no objects, no shadows, just the bare paver pattern.', { tech: FLOOR_TECH, size: 512, ref: 'soi' }),
+  A('env_floor_grass_01.png', 'floors', 'plain lush green lawn grass texture only — absolutely no flowers, no objects, no shadows, just the bare grass.', { tech: FLOOR_TECH, size: 512, ref: 'soi' }),
   // F. UI reference sheets (stored for later wiring)
   A('ui_kit_main_01.png', 'ui', 'a cozy casual game UI kit laid out on a neutral background: a large rounded rectangle panel, a primary button, a secondary button, a row of small circular icon buttons, a horizontal progress bar, a small currency chip, a 4x4 inventory slot grid, and a tab bar with three tabs. Warm cream panels, dark forest-green outlines, terracotta accent colour, soft drop shadows, generous rounded corners.', { aspect: '16:9', tech: 'Flat front-facing view, crisp and readable at small size.' }),
   A('ui_frame_rarity_01.png', 'ui', 'a set of four empty square item slot frames in a row, identical shape but different colours indicating rarity tiers: plain grey, teal, purple, and warm gold with a subtle glow. Rounded corners, clean outline, soft inner shadow, on a neutral dark background.', { aspect: '16:9', tech: 'Flat front-facing view, crisp and readable at small size.' }),
@@ -256,10 +330,10 @@ function log(line) {
   fs.appendFileSync(LOG_PATH, line + '\n');
 }
 
-async function genAnchor() {
-  console.log('Generating style anchor scene (flux-pro-1.1, text-only)…');
+async function genAnchor(prompt = ANCHOR_PROMPT, target = REF_PATH) {
+  console.log(`Generating style anchor scene (flux-pro-1.1, text-only) -> ${path.basename(target)}…`);
   const task = await bflCreate('/v1/flux-pro-1.1', {
-    prompt: ANCHOR_PROMPT,
+    prompt,
     width: 1440,
     height: 800,
     output_format: 'png',
@@ -267,19 +341,19 @@ async function genAnchor() {
   });
   const url = await bflWait(task);
   const buf = await download(url);
-  fs.writeFileSync(REF_PATH, buf);
-  log(`| _STYLE_REF_day.png | flux-pro-1.1 | ${task.id} | ${new Date().toISOString()} |`);
-  console.log(`✓ anchor saved -> ${REF_PATH}`);
+  fs.writeFileSync(target, buf);
+  log(`| ${path.basename(target)} | flux-pro-1.1 | ${task.id} | ${new Date().toISOString()} |`);
+  console.log(`✓ anchor saved -> ${target}`);
 }
 
-async function genAsset(asset, refB64) {
+async function genAsset(asset, refs) {
   const target = path.join(GAME_ASSETS, asset.dir, asset.file);
   const prompt =
     `Using the exact art style, colour palette and line quality of this reference image, ` +
     `create a completely new standalone image: ${asset.desc} ${asset.tech} ${STYLE}`;
   const task = await bflCreate('/v1/flux-kontext-pro', {
     prompt,
-    input_image: refB64,
+    input_image: refs[asset.ref],
     aspect_ratio: asset.aspect,
     output_format: 'png',
     safety_tolerance: 2,
@@ -315,12 +389,63 @@ async function main() {
     await genAnchor();
     return;
   }
+  if (args.includes('--soi-anchor')) {
+    await genAnchor(SOI_ANCHOR_PROMPT, SOI_REF_PATH);
+    return;
+  }
+  // re-run post-processing from the kept raw outputs — no API calls, no cost
+  if (args.includes('--reprocess')) {
+    const rawDir = path.join(ROOT, '.asset-raw');
+    let done = 0;
+    for (const asset of ASSETS) {
+      const rawPath = path.join(rawDir, asset.file);
+      if (!fs.existsSync(rawPath)) continue;
+      const processed = await postProcess(fs.readFileSync(rawPath), asset);
+      const target = path.join(GAME_ASSETS, asset.dir, asset.file);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, processed);
+      if (asset.copyToWeb) {
+        const webDir = path.join(ROOT, 'apps', 'web', 'public', 'assets', asset.dir);
+        fs.mkdirSync(webDir, { recursive: true });
+        fs.writeFileSync(path.join(webDir, asset.file), processed);
+      }
+      done++;
+      console.log(`  ↻ ${asset.file}`);
+    }
+    console.log(`Reprocessed ${done} assets from .asset-raw (no API calls).`);
+    return;
+  }
+  // strip white halos from already-shipped alpha sprites that have no raw
+  if (args.includes('--defringe-existing')) {
+    const rawDir = path.join(ROOT, '.asset-raw');
+    let done = 0;
+    for (const asset of ASSETS) {
+      if (!asset.alpha) continue;
+      if (fs.existsSync(path.join(rawDir, asset.file))) continue; // reprocess covers these
+      const target = path.join(GAME_ASSETS, asset.dir, asset.file);
+      if (!fs.existsSync(target)) continue;
+      const processed = await defringeExisting(fs.readFileSync(target));
+      fs.writeFileSync(target, processed);
+      if (asset.copyToWeb) {
+        const webDir = path.join(ROOT, 'apps', 'web', 'public', 'assets', asset.dir);
+        fs.mkdirSync(webDir, { recursive: true });
+        fs.writeFileSync(path.join(webDir, asset.file), processed);
+      }
+      done++;
+      console.log(`  ✂ ${asset.file}`);
+    }
+    console.log(`Defringed ${done} existing assets in place.`);
+    return;
+  }
 
   if (!fs.existsSync(REF_PATH)) {
     console.error('No _STYLE_REF_day.png found. Run with --anchor first.');
     process.exit(1);
   }
-  const refB64 = fs.readFileSync(REF_PATH).toString('base64');
+  const refs = { day: fs.readFileSync(REF_PATH).toString('base64') };
+  if (fs.existsSync(SOI_REF_PATH)) {
+    refs.soi = fs.readFileSync(SOI_REF_PATH).toString('base64');
+  }
 
   const force = args.includes('--force');
   const onlyIdx = args.indexOf('--only');
@@ -329,6 +454,14 @@ async function main() {
   let queue = ASSETS.filter((a) => (only ? a.file.includes(only) : true));
   if (!force) {
     queue = queue.filter((a) => !fs.existsSync(path.join(GAME_ASSETS, a.dir, a.file)));
+  }
+  const noRef = queue.filter((a) => !refs[a.ref]);
+  if (noRef.length) {
+    console.error(
+      `Missing style anchor '${noRef[0].ref}' for ${noRef.length} asset(s). ` +
+        `Run with --soi-anchor first.`,
+    );
+    process.exit(1);
   }
   console.log(`Generating ${queue.length}/${ASSETS.length} assets (concurrency ${CONCURRENCY})…`);
 
@@ -339,7 +472,7 @@ async function main() {
       const asset = queue.shift();
       if (!asset) break;
       try {
-        await genAsset(asset, refB64);
+        await genAsset(asset, refs);
         done++;
         console.log(`  ✓ [${done}] ${asset.file}`);
       } catch (err) {

@@ -33,6 +33,17 @@ export const TEXTURES: Record<string, string> = {
   table_communal: 'world/prop_table_communal_01.png',
   lamp_rattan: 'world/prop_lamp_rattan_01.png',
   tree_interior: 'world/prop_tree_interior_01.png',
+  // Phase 3c — D3.5 Sims-open surroundings (soi anchor set)
+  backdrop_shophouse_a: 'world/env_backdrop_shophouse_a_01.png',
+  backdrop_shophouse_b: 'world/env_backdrop_shophouse_b_01.png',
+  backdrop_tower: 'world/env_backdrop_tower_01.png',
+  tree_street: 'world/prop_tree_street_01.png',
+  lamp_street: 'world/prop_lamp_street_01.png',
+  planter_row: 'world/prop_planter_row_01.png',
+  scooter: 'world/prop_scooter_01.png',
+  floor_asphalt: 'floors/env_floor_asphalt_01.png',
+  floor_pavers: 'floors/env_floor_pavers_01.png',
+  floor_grass: 'floors/env_floor_grass_01.png',
 };
 
 /** Map a plot facade template to its texture key. */

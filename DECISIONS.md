@@ -327,6 +327,85 @@ pricing decisions and a real user base first (matches the plan's own risk
 notes). Multi-floor per-floor themes beyond three floors are schema-ready
 (floor int, no cap in data — server clamps 1..3 for now).
 
+### D3.5 Sims-style open neighbourhood (2026-07-19, supersedes part of D2.1)
+Owner direction: the map must not read as a sealed box floating in a void —
+it should feel like a Sims lot in a living neighbourhood, with space that
+looks continuable. Seenspace research backs this: its essence is SEMI-outdoor
+(courtyard mall open to the soi), which the D2.1 enclosure contradicted.
+The building interior stays exactly as D2.1/D2.4 built it; what changed is
+everything OUTSIDE the walls, all procedural and baked into one RenderTexture
+(CANVAS renderer re-draws Graphics paths per frame; ~1k diamonds must not run
+live):
+- Front edges: sidewalk ring → soi (asphalt, lane dashes, zebra crossing) →
+  kerb → green verge with street trees; roads run off-camera on both ends.
+- The front low wall opens at the walkway column (gate posts) so the
+  terracotta path continues out to the sidewalk and crossing — movement stays
+  clamped to the 24×24 lot, like a Sims lot edge.
+- Back edges: 2-tile service alley, then Thonglor shophouse blocks + condo
+  towers (windows lit deterministically at night, water tanks, one neon
+  billboard — shapes only) with a hazy far skyline row behind.
+- Sky per phase: clouds (day), orange bands (dusk), stars + moon (night).
+  Camera bounds extended by ~300-380px margins so all of this is visible.
+- Floor 3 rooftop gets the same skyline (no street); the checker court is
+  recoloured cream/terracotta ("no black-and-white" direction); ambient
+  dim + vignette softened further.
+`.claude/launch.json` was also rewritten from hardcoded macOS node paths to
+`pnpm --filter` commands (dev machine is now Windows).
+
+**Phase 3c follow-up (same day):** the owner supplied a golden-hour
+open-frame reference ("อยากได้แบบนี้") — the procedural surroundings were
+upgraded to a generated art set. A SECOND style anchor
+(`_STYLE_REF_soi.png`, `--soi-anchor`) matches that reference; the BFL
+manifest gained a per-asset `ref` field ('day' | 'soi') and ten soi-anchored
+assets: 3 backdrop buildings (shophouse a/b + condo tower), street palm,
+street lamp, planter row, scooter, and asphalt/pavers/grass tiles.
+`WorldScene` now stamps these into the surroundings RT (`rtStamp`,
+`paintGroundRing`, `paintNeighborBlocks`, `paintStreetFurniture`) with the
+old procedural painters kept as fallbacks; a translucent shade is baked over
+the whole neighbourhood at dusk/night since the sprites are day-lit, keeping
+the lit hall warmer than the street. Verification note: hidden Browser-pane
+tabs get Chrome's intensive timer throttling (~1 step/min despite
+forceSetTimeOut + the HIDDEN wake hook) — drive `window.__neonGame.loop.step()`
+manually when screenshotting headlessly.
+
+**Polish pass (owner feedback, 2026-07-19):** white seams / overlap / floating
+fixes. (a) `whiteToAlpha` gained a defringe step (peels the 1-3px pale AA halo
+at sprite edges); `--reprocess` re-runs post-processing from `.asset-raw/`
+and `--defringe-existing` strips halos in place for the 36 older sprites whose
+raws predate raw-keeping — no API spend either way. (b) Hanging rattan lamps
+depth-sort by the FLOOR point under them, not the hang height, so front-row
+lamps draw over shop facades behind them. (c) The front cutaway rail is now
+one graphics per bay with depth = its base line (was one layer at depth 8000),
+and street furniture became LIVE sprites with floor depths + phase tints —
+planters/lamps/scooters outside the rail are no longer clipped by it; lamp
+glow moved above the rail (light bleeds over a low wall). (d) `groundShadow()`
+contact shadows under facades, tables, vending, booth, props, street sprites
+and actors seat everything on the floor.
+
+**Facade rework (owner direction, 2026-07-19):** all four shop facades
+(empty / cafe / vintage / street-food) regenerated on the soi anchor as
+exposed matte black steel post-and-beam pavilions with open terrace tops —
+matching the owner's open-frame reference and the D3.5 neighbourhood set.
+Same files, same manifest keys; drop-in replacement, night neon accents
+unchanged.
+
+### D3.6 Per-floor elevation cues (owner feedback, 2026-07-19)
+Floors 1/2/3 shared the same street-level surroundings, so changing floors
+didn't feel like going up. Now everything OUTSIDE the lot sinks by a
+per-floor drop (`FLOOR_DROP` 0 / 110 / 440 px; hazy far skyline shifts half
+as much for parallax):
+- G: street at eye level, planters/lamps/scooters live at the rail (as D3.5).
+- Floor 2: our own ground-floor facade band drops below the slab edge (cream
+  wall, teak sign band, dark shopfront openings), the full street ring +
+  furniture re-bakes one storey down, neighbour blocks show their upper
+  floors, light aerial haze. Street furniture is baked here (nothing outside
+  interleaves with the balcony rail), planter rows are G-only.
+- Floor 3: no street — a shadowed canyon fill below the parapets with faint
+  lane markings deep down, neighbour ROOFLINES peeking above the canyon edge
+  (blocks stamped with a ~470px drop), low clouds drifting past at day, and
+  the strongest haze. Street glow is now G-only.
+All of it stays inside the baked surroundings RT; interior scenes untouched.
+
 ### D3.4 Seenspace-reference night hall (2026-07-19)
 Owner supplied Seenspace Thonglor photos as the interior/night reference. The
 G-floor now matches it: dining relaid as a BEER GARDEN — eight long communal

@@ -132,6 +132,67 @@ const SKY_COLOR: Record<TimePhase, number> = { day: 0x8fbcd6, dusk: 0x4a3050, ni
 const BOT_HOME: Cell = { gx: 14, gy: 17 };
 const BOT_SPEED_TILES = 2.6;
 
+/** D3.5 — Sims-style open neighbourhood: the hall is a lot on a living soi.
+ * EXT = tiles of surroundings drawn past the playable grid; CAM = extra
+ * camera margin so the street/skyline is visible from the world edges. */
+const EXT = 8;
+const CAM = { top: 320, side: 380, bottom: 300 };
+
+/** D3.6 — per-floor elevation: everything outside SINKS as you go up, so a
+ * floor change reads as real height. Ground level 0; floor 2 puts the soi
+ * ~one storey below; floor 3 drops the neighbours so only rooflines peek
+ * over the parapet. FAR_DROP shifts the hazy skyline less (parallax). */
+const FLOOR_DROP: Record<number, number> = { 1: 0, 2: 110, 3: 440 };
+const FAR_DROP: Record<number, number> = { 1: 0, 2: 55, 3: 170 };
+
+/** Street furniture on the soi (front edges). Grid coords, may exceed COLS/ROWS. */
+const LAMPS: Array<[number, number]> = [
+  [2, ROWS + 1.35], [8, ROWS + 1.35], [16, ROWS + 1.35], [22, ROWS + 1.35],
+  [COLS + 1.35, 2], [COLS + 1.35, 8], [COLS + 1.35, 16], [COLS + 1.35, 22],
+];
+const STREET_TREES: Array<[number, number]> = [
+  [4.5, ROWS + 6.3], [12.3, ROWS + 6.7], [20.6, ROWS + 6.2],
+  [COLS + 6.4, 5.3], [COLS + 6.8, 13.6], [COLS + 6.2, 20.5],
+];
+/** Rooftop billboard on a neighbour block — neon shapes only, no lettering. */
+const BILLBOARD = { gx0: 16.6, gx1: 20.4, gy: -2.4, h: 330 };
+
+/** Neighbour buildings behind the two back walls (Thonglor shophouse row +
+ * a couple of condo towers). u0/u1 run along the edge in tiles; off = tiles
+ * behind the wall; h = facade height px. */
+interface NeighborBlock { u0: number; u1: number; off: number; h: number; c: number; tower?: boolean; tank?: boolean }
+const BLOCKS_NE: NeighborBlock[] = [
+  { u0: -3, u1: 2, off: 1.2, h: 230, c: 0xd8c6ae },
+  { u0: 2.4, u1: 5.6, off: 1.4, h: 300, c: 0xc9967a },
+  { u0: 6, u1: 9.6, off: 1.2, h: 252, c: 0xbfcabf, tank: true },
+  { u0: 10, u1: 11.6, off: 1.7, h: 440, c: 0xa4b4bc, tower: true },
+  { u0: 12, u1: 16.2, off: 1.3, h: 268, c: 0xd6c2a4 },
+  { u0: 16.6, u1: 20.4, off: 1.4, h: 236, c: 0xc7b49a },
+  { u0: 20.8, u1: 27, off: 1.2, h: 288, c: 0xb9a58f },
+];
+const BLOCKS_NW: NeighborBlock[] = [
+  { u0: -3, u1: 2, off: 1.3, h: 262, c: 0xcdbba1 },
+  { u0: 2.4, u1: 6, off: 1.4, h: 336, c: 0xbe9a80, tank: true },
+  { u0: 6.4, u1: 8.2, off: 1.7, h: 470, c: 0x9fadb5, tower: true },
+  { u0: 8.6, u1: 12.6, off: 1.2, h: 250, c: 0xd2c0a8 },
+  { u0: 13, u1: 17, off: 1.5, h: 302, c: 0xc2ae94 },
+  { u0: 17.4, u1: 22, off: 1.2, h: 232, c: 0xd0bfa6 },
+  { u0: 22.4, u1: 27, off: 1.4, h: 276, c: 0xbaa88e },
+];
+/** Hazy far row — a second, taller skyline layer behind the blocks. */
+const FAR_NE: NeighborBlock[] = [
+  { u0: -2, u1: 6, off: 4, h: 520, c: 0 },
+  { u0: 8, u1: 13, off: 4.6, h: 610, c: 0 },
+  { u0: 14.5, u1: 21, off: 4.2, h: 560, c: 0 },
+  { u0: 22, u1: 28, off: 3.8, h: 480, c: 0 },
+];
+const FAR_NW: NeighborBlock[] = [
+  { u0: -2, u1: 4, off: 4.2, h: 560, c: 0 },
+  { u0: 5.5, u1: 11, off: 4.6, h: 640, c: 0 },
+  { u0: 12.5, u1: 18, off: 4, h: 500, c: 0 },
+  { u0: 19, u1: 27, off: 4.4, h: 580, c: 0 },
+];
+
 const PHOTO_BACKDROPS: Array<{ name: string; color: number }> = [
   { name: 'cream', color: 0xf2e3c8 },
   { name: 'teal', color: 0x2f6f6a },
@@ -235,6 +296,7 @@ export class WorldScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(SKY_COLOR[this.phase]);
+    this.drawSurroundings();
     this.drawGround();
     if (this.floor === 3) {
       this.drawRooftopShell();
@@ -249,7 +311,13 @@ export class WorldScene extends Phaser.Scene {
     // perimeter wall tiles are impassable for the AutoServeBot
     for (let gx = 0; gx < COLS; gx++) this.blockedTiles.add(gx);
     for (let gy = 0; gy < ROWS; gy++) this.blockedTiles.add(gy * COLS);
-    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+    // margins let the camera show the soi + skyline past the lot (D3.5)
+    this.cameras.main.setBounds(
+      -CAM.side,
+      -CAM.top,
+      WORLD_W + CAM.side * 2,
+      WORLD_H + CAM.top + CAM.bottom,
+    );
     this.cameras.main.startFollow(this.avatar, true, 0.1, 0.1);
 
     if (this.floor === 1) {
@@ -426,6 +494,8 @@ export class WorldScene extends Phaser.Scene {
       if (path) {
         this.blitFloor(path, ENTRANCE.start, 1, ENTRANCE.width, ROWS - 1);
         this.blitFloor(path, 1, 14, COLS - 1, 4);
+        // walkway continues out the front gate to the soi's sidewalk (D3.5)
+        if (this.floor === 1) this.blitFloor(path, ENTRANCE.start, ROWS, ENTRANCE.width, 2);
       }
       if (this.floor === 1) this.drawCheckerCourt();
     } else {
@@ -546,41 +616,50 @@ export class WorldScene extends Phaser.Scene {
     this.drawStringLights(g);
 
     // low cutaway walls on the two FRONT edges close the room without hiding
-    // the interior (drawn above world objects — they sit closest to camera)
-    const f = this.add.graphics().setDepth(8000);
-    const fq = (
+    // the interior. Each bay is its own graphics with depth = its base line,
+    // so live street furniture just outside (planters, lamps, scooters)
+    // y-sorts IN FRONT of the rail instead of being clipped by it.
+    const LOW = 42;
+    const fbay = (
       a: { x: number; y: number },
       b: { x: number; y: number },
-      h0: number,
-      h1: number,
-      color: number,
-      alpha = 1,
+      face: number,
+      high = LOW,
     ): void => {
-      f.fillStyle(color, alpha);
-      f.fillPoints(
-        [
-          new Phaser.Geom.Point(a.x, a.y - h1),
-          new Phaser.Geom.Point(b.x, b.y - h1),
-          new Phaser.Geom.Point(b.x, b.y - h0),
-          new Phaser.Geom.Point(a.x, a.y - h0),
-        ],
-        true,
-      );
+      const f = this.add.graphics().setDepth(Math.max(a.y, b.y));
+      const fq = (h0: number, h1: number, color: number): void => {
+        f.fillStyle(color, 1);
+        f.fillPoints(
+          [
+            new Phaser.Geom.Point(a.x, a.y - h1),
+            new Phaser.Geom.Point(b.x, b.y - h1),
+            new Phaser.Geom.Point(b.x, b.y - h0),
+            new Phaser.Geom.Point(a.x, a.y - h0),
+          ],
+          true,
+        );
+      };
+      fq(0, high, face);
+      if (high === LOW) fq(high - 7, high, 0x8a5a2b); // teak cap rail
+      fq(0, 8, 0x16302a);
     };
-    const LOW = 42;
     for (let gy = 0; gy < ROWS; gy++) {
-      const a = isoPos(COLS, gy);
-      const b = isoPos(COLS, gy + 1);
-      fq(a, b, 0, LOW, 0xe6d5b8);
-      fq(a, b, LOW - 7, LOW, 0x8a5a2b); // teak cap rail
-      fq(a, b, 0, 8, 0x16302a);
+      fbay(isoPos(COLS, gy), isoPos(COLS, gy + 1), 0xe6d5b8);
     }
+    // G floor: the front wall opens onto the soi where the walkway crosses —
+    // the lot connects to the street like a Sims lot (D3.5). Upper floors
+    // keep the full rail.
+    const gate = (gx: number): boolean =>
+      this.floor === 1 && gx >= ENTRANCE.start && gx < ENTRANCE.start + ENTRANCE.width;
     for (let gx = 0; gx < COLS; gx++) {
-      const a = isoPos(gx, ROWS);
-      const b = isoPos(gx + 1, ROWS);
-      fq(a, b, 0, LOW, 0xf2e6cf);
-      fq(a, b, LOW - 7, LOW, 0x8a5a2b);
-      fq(a, b, 0, 8, 0x16302a);
+      if (gate(gx)) continue;
+      fbay(isoPos(gx, ROWS), isoPos(gx + 1, ROWS), 0xf2e6cf);
+    }
+    if (this.floor === 1) {
+      // gate posts flanking the opening
+      for (const gp of [ENTRANCE.start, ENTRANCE.start + ENTRANCE.width]) {
+        fbay(isoPos(gp - 0.08, ROWS), isoPos(gp + 0.08, ROWS), 0x1e3d34, LOW + 18);
+      }
     }
   }
 
@@ -629,11 +708,13 @@ export class WorldScene extends Phaser.Scene {
     for (const [gx, gy, hang] of spots) {
       const c = isoPos(gx, gy);
       const lampY = c.y - hang;
-      // cord up into the dark
-      const cord = this.add.graphics().setDepth(lampY);
+      // cord up into the dark. Depth = the FLOOR point under the lamp, not
+      // the hanging height — otherwise shop facades in front rows draw over
+      // lamps that hang closer to the camera.
+      const cord = this.add.graphics().setDepth(c.y - 1);
       cord.lineStyle(2, 0x1a140c, 0.8);
       cord.lineBetween(c.x, lampY - 130, c.x, lampY);
-      const lamp = this.add.image(c.x, lampY, 'lamp_rattan').setOrigin(0.5, 0).setDepth(lampY);
+      const lamp = this.add.image(c.x, lampY, 'lamp_rattan').setOrigin(0.5, 0).setDepth(c.y);
       const w = TILE_W * 0.55;
       lamp.setDisplaySize(w, (w * lamp.height) / lamp.width);
       if (this.phase !== 'day') {
@@ -726,9 +807,9 @@ export class WorldScene extends Phaser.Scene {
       const w = this.scale.width;
       const h = this.scale.height;
       const g = this.add.graphics().setScrollFactor(0).setDepth(9998);
-      // kept light on purpose: cozy, not cramped (chill-lounge direction).
-      // Night mode adds the D0.6 blue-green tint layer on top.
-      g.fillStyle(0x1a1006, 0.045);
+      // kept light on purpose: cozy, not cramped (chill-lounge direction —
+      // softened further for the D3.5 open map).
+      g.fillStyle(0x1a1006, 0.03);
       g.fillRect(0, 0, w, h);
       if (this.phase === 'night') {
         g.fillStyle(0x0e1c33, this.floor === 3 ? 0.22 : 0.3);
@@ -737,10 +818,11 @@ export class WorldScene extends Phaser.Scene {
         g.fillStyle(0xcc5a2a, 0.1);
         g.fillRect(0, 0, w, h);
       }
-      // faked gradient vignette: two soft bands per edge
+      // faked gradient vignette: two soft bands per edge (near-transparent —
+      // a heavy vignette would fight the open-neighbourhood feel)
       const bands: Array<[number, number]> = [
-        [14, 0.09],
-        [40, 0.04],
+        [14, 0.05],
+        [40, 0.02],
       ];
       for (const [t, a] of bands) {
         g.fillStyle(0x120c04, a);
@@ -755,15 +837,692 @@ export class WorldScene extends Phaser.Scene {
     this.scale.on('resize', paint);
   }
 
-  /** Black-and-white checkered court under the lounge (Seenspace alley). */
+  /** Warm checkered court under the lounge (Seenspace alley — recoloured
+   * from black/white to cream/terracotta per the open-map direction, D3.5). */
   private drawCheckerCourt(): void {
     const g = this.add.graphics().setDepth(0.5);
     for (let gy = 7; gy <= 12; gy++) {
       for (let gx = 15; gx <= 21; gx++) {
-        g.fillStyle((gx + gy) % 2 === 0 ? 0x20201e : 0xe9e4d8, 0.92);
+        g.fillStyle((gx + gy) % 2 === 0 ? 0xc9825c : 0xefe6d2, 0.92);
         this.fillDiamond(g, gx, gy);
       }
     }
+  }
+
+  // ---------- D3.5: Sims-style open neighbourhood ----------
+  /** The lot sits in a living soi: sidewalk + road on the two front edges,
+   * neighbour shophouses/towers behind the back walls, sky above. Everything
+   * static is baked into one RenderTexture (the CANVAS renderer re-draws
+   * Graphics paths every frame — ~1k diamonds would tank it live). */
+  private drawSurroundings(): void {
+    const w = WORLD_W + CAM.side * 2;
+    const h = WORLD_H + CAM.top + CAM.bottom;
+    const rt = this.add.renderTexture(-CAM.side, -CAM.top, w, h).setOrigin(0).setDepth(0);
+    // paint order = distance: sky, far skyline, ground ring, buildings, props
+    // (buildings stand ON the alley strip, so they come after the ring).
+    // D3.6: everything outside is shifted down by the floor's drop so
+    // higher floors genuinely look down on the neighbourhood.
+    const sky = this.make.graphics({ x: 0, y: 0 }, false);
+    this.paintSky(sky);
+    const farDy = FAR_DROP[this.floor] ?? 0;
+    this.paintNeighborRow(sky, FAR_NW, 'nw', true, farDy);
+    this.paintNeighborRow(sky, FAR_NE, 'ne', true, farDy);
+    rt.draw(sky, CAM.side, CAM.top);
+    sky.destroy();
+    if (this.floor !== 3) this.paintGroundRing(rt);
+    this.paintNeighborBlocks(rt);
+    if (this.floor === 1) this.paintStreetFurniture(rt);
+    if (this.floor === 2) {
+      this.paintStreetFurnitureBaked(rt, FLOOR_DROP[2]);
+      this.paintOwnFacadeBand(rt, FLOOR_DROP[2]);
+    }
+    if (this.floor === 3) this.paintRooftopBelow(rt);
+    // the painted assets are day-lit; shade the whole neighbourhood after
+    // dark so the street reads darker than the lit hall (glows stay live)
+    if (this.phase !== 'day') {
+      const shade = this.make.graphics({ x: 0, y: 0 }, false);
+      shade.fillStyle(
+        this.phase === 'night' ? 0x0a1626 : 0xcc5a2a,
+        this.phase === 'night' ? 0.32 : 0.1,
+      );
+      shade.fillRect(-CAM.side, -CAM.top, w, h);
+      rt.draw(shade, CAM.side, CAM.top);
+      shade.destroy();
+    }
+    // aerial haze: the higher the floor, the paler the world outside
+    if (this.floor > 1 && this.phase !== 'night') {
+      const haze = this.make.graphics({ x: 0, y: 0 }, false);
+      haze.fillStyle(
+        this.phase === 'day' ? 0xcfe0ea : 0xe8c0a0,
+        this.floor === 3 ? 0.16 : 0.09,
+      );
+      haze.fillRect(-CAM.side, -CAM.top, w, h);
+      rt.draw(haze, CAM.side, CAM.top);
+      haze.destroy();
+    }
+    if (this.floor === 1) this.drawStreetGlow();
+  }
+
+  /** Stamp a generated sprite into the surroundings RT at a grid position
+   * (origin bottom-centre). Returns false when the texture is missing so
+   * callers can fall back to the procedural version. */
+  private rtStamp(
+    rt: Phaser.GameObjects.RenderTexture,
+    key: string,
+    gx: number,
+    gy: number,
+    widthPx: number,
+    flipX = false,
+    dy = 0,
+  ): boolean {
+    if (!this.tex(key)) return false;
+    const img = this.make.image({ key, add: false });
+    img.setOrigin(0.5, 1);
+    img.setDisplaySize(widthPx, (widthPx * img.height) / img.width);
+    img.setFlipX(flipX);
+    const p = isoPos(gx, gy);
+    rt.draw(img, p.x + CAM.side, p.y + CAM.top + dy);
+    img.destroy();
+    return true;
+  }
+
+  /** Ground ring from generated tile materials (asphalt / pavers / grass);
+   * falls back to the flat-shaded ring when the textures are missing. */
+  private paintGroundRing(rt: Phaser.GameObjects.RenderTexture): void {
+    const asphalt = this.makeIsoFloor('floor_asphalt');
+    const pavers = this.makeIsoFloor('floor_pavers');
+    const grass = this.makeIsoFloor('floor_grass');
+    const conc = this.makeIsoFloor('floor_concrete');
+    if (!asphalt || !pavers || !grass) {
+      const g = this.make.graphics({ x: 0, y: 0 }, false);
+      this.paintStreetRing(g);
+      rt.draw(g, CAM.side, CAM.top);
+      g.destroy();
+      return;
+    }
+    const dy = FLOOR_DROP[this.floor] ?? 0;
+    // distant-ground base under the far corner, past the tile ring (starts
+    // well under the ring so no sky can peek through at the corners)
+    const base = this.make.graphics({ x: 0, y: 0 }, false);
+    if (dy > 0) {
+      // upstairs: a shadowed gap opens between the slab edge and the street
+      // below — fill it so nothing shows sky through the drop
+      const A = isoPos(0, ROWS);
+      const B = isoPos(COLS, ROWS);
+      const C = isoPos(COLS, 0);
+      base.fillStyle(this.phase === 'night' ? 0x11161f : 0x6a7076, 1);
+      base.fillPoints(
+        [
+          new Phaser.Geom.Point(-CAM.side, A.y),
+          new Phaser.Geom.Point(A.x, A.y),
+          new Phaser.Geom.Point(B.x, B.y),
+          new Phaser.Geom.Point(C.x, C.y),
+          new Phaser.Geom.Point(WORLD_W + CAM.side, C.y),
+          new Phaser.Geom.Point(WORLD_W + CAM.side, WORLD_H + CAM.bottom),
+          new Phaser.Geom.Point(-CAM.side, WORLD_H + CAM.bottom),
+        ],
+        true,
+      );
+    }
+    base.fillStyle(this.phase === 'night' ? 0x3d4a35 : 0x5f7846, 1);
+    base.fillRect(
+      -CAM.side,
+      WORLD_H - TILE_H * 5 + dy,
+      WORLD_W + CAM.side * 2,
+      CAM.bottom + TILE_H * 6,
+    );
+    rt.draw(base, CAM.side, CAM.top);
+    base.destroy();
+    // one reusable stamp per material
+    const stamps = new Map<string, Phaser.GameObjects.Image>();
+    const stampOf = (k: string): Phaser.GameObjects.Image => {
+      let s = stamps.get(k);
+      if (!s) {
+        s = this.make.image({ key: k, add: false }).setOrigin(0.5);
+        stamps.set(k, s);
+      }
+      return s;
+    };
+    for (let gy = -EXT; gy < ROWS + EXT; gy++) {
+      for (let gx = -EXT; gx < COLS + EXT; gx++) {
+        const inside = gx >= 0 && gx < COLS && gy >= 0 && gy < ROWS;
+        if (inside) continue;
+        let key: string | null;
+        if (gx >= COLS || gy >= ROWS) {
+          const d = Math.max(gx - COLS, gy - ROWS);
+          key = d <= 1 ? pavers : d <= 4 ? asphalt : d === 5 ? pavers : grass;
+        } else {
+          // narrow service alley behind the building
+          key = Math.max(-gx, -gy) > 2 ? null : conc ?? pavers;
+        }
+        if (!key) continue;
+        const c = isoPos(gx + 0.5, gy + 0.5);
+        rt.draw(stampOf(key), c.x + CAM.side, c.y + CAM.top + dy);
+      }
+    }
+    stamps.forEach((s) => s.destroy());
+    // road markings over the tiles
+    const marks = this.make.graphics({ x: 0, y: 0 }, false);
+    marks.lineStyle(5, 0xd8b23c, 0.45);
+    for (let gx = -6; gx < COLS - 1; gx += 2) {
+      const s = isoPos(gx + 0.15, ROWS + 3.5);
+      const e = isoPos(gx + 0.85, ROWS + 3.5);
+      marks.lineBetween(s.x, s.y + dy, e.x, e.y + dy);
+    }
+    for (let gy = -6; gy < ROWS - 1; gy += 2) {
+      const s = isoPos(COLS + 3.5, gy + 0.15);
+      const e = isoPos(COLS + 3.5, gy + 0.85);
+      marks.lineBetween(s.x, s.y + dy, e.x, e.y + dy);
+    }
+    marks.lineStyle(9, 0xe6dfcf, 0.8);
+    for (let i = 0; i < 6; i++) {
+      const s = isoPos(ENTRANCE.start + 0.35 + i * 0.62, ROWS + 2.15);
+      const e = isoPos(ENTRANCE.start + 0.35 + i * 0.62, ROWS + 4.85);
+      marks.lineBetween(s.x, s.y + dy, e.x, e.y + dy);
+    }
+    rt.draw(marks, CAM.side, CAM.top);
+    marks.destroy();
+  }
+
+  /** Neighbour skyline from the generated backdrop buildings (soi anchor
+   * set); procedural extruded blocks when the sprites are missing. */
+  private paintNeighborBlocks(rt: Phaser.GameObjects.RenderTexture): void {
+    const dy = FLOOR_DROP[this.floor] ?? 0;
+    const haveSprites =
+      this.tex('backdrop_shophouse_a') &&
+      this.tex('backdrop_shophouse_b') &&
+      this.tex('backdrop_tower');
+    if (!haveSprites) {
+      const g = this.make.graphics({ x: 0, y: 0 }, false);
+      this.paintNeighborRow(g, BLOCKS_NW, 'nw', false, dy);
+      this.paintNeighborRow(g, BLOCKS_NE, 'ne', false, dy);
+      rt.draw(g, CAM.side, CAM.top);
+      g.destroy();
+      return;
+    }
+    // shoulder-to-shoulder painted row behind each back wall
+    const NE: Array<[string, number, number, boolean]> = [
+      ['backdrop_shophouse_a', 0.6, 520, false],
+      ['backdrop_shophouse_b', 4.6, 500, true],
+      ['backdrop_tower', 8.2, 330, false],
+      ['backdrop_shophouse_a', 12.4, 520, true],
+      ['backdrop_shophouse_b', 16.6, 500, false],
+      ['backdrop_tower', 20.4, 330, true],
+      ['backdrop_shophouse_a', 24.6, 520, false],
+    ];
+    const NW: Array<[string, number, number, boolean]> = [
+      ['backdrop_shophouse_b', 1.0, 500, false],
+      ['backdrop_tower', 4.9, 330, true],
+      ['backdrop_shophouse_a', 8.8, 520, false],
+      ['backdrop_shophouse_b', 13.0, 500, true],
+      ['backdrop_shophouse_a', 17.2, 520, false],
+      ['backdrop_tower', 21.0, 330, false],
+      ['backdrop_shophouse_b', 25.2, 500, true],
+    ];
+    for (const [key, u, w, flip] of NE) this.rtStamp(rt, key, u, -0.85, w, flip, dy);
+    for (const [key, u, w, flip] of NW) this.rtStamp(rt, key, -0.85, u, w, flip, dy);
+  }
+
+  /** A LIVE street sprite with a floor-anchored depth so it y-sorts against
+   * the low front rail (baked stamps sit at depth 0 and get clipped by it).
+   * Sprites are day-lit; a phase tint keeps them matching the shaded RT. */
+  private streetSprite(key: string, gx: number, gy: number, widthPx: number, flipX = false): void {
+    if (!this.tex(key)) return;
+    const p = isoPos(gx, gy);
+    this.groundShadow(p.x, p.y, widthPx * 0.72, p.y - 1);
+    const img = this.add.image(p.x, p.y, key).setOrigin(0.5, 1).setDepth(p.y);
+    img.setDisplaySize(widthPx, (widthPx * img.height) / img.width);
+    img.setFlipX(flipX);
+    if (this.phase === 'night') img.setTint(0x9fa8bc);
+    else if (this.phase === 'dusk') img.setTint(0xf2d8c4);
+  }
+
+  /** Planter rows, palms, lamps and scooters from the soi set; the flat
+   * procedural furniture when the sprites are missing. */
+  private paintStreetFurniture(rt: Phaser.GameObjects.RenderTexture): void {
+    if (!this.tex('tree_street') || !this.tex('lamp_street')) {
+      const g = this.make.graphics({ x: 0, y: 0 }, false);
+      this.paintStreetProps(g);
+      rt.draw(g, CAM.side, CAM.top);
+      g.destroy();
+      return;
+    }
+    // terracotta planter rows hugging the lot walls (reference signature) —
+    // skipping the gate opening
+    const planterW = TILE_W * 1.7;
+    for (let gx = 2.0; gx < COLS - 0.5; gx += 3.4) {
+      if (gx > ENTRANCE.start - 1.6 && gx < ENTRANCE.start + ENTRANCE.width + 0.6) continue;
+      this.streetSprite('planter_row', gx, ROWS + 0.72, planterW, gx % 6.8 < 3.4);
+    }
+    for (let gy = 2.0; gy < ROWS - 0.5; gy += 3.4) {
+      this.streetSprite('planter_row', COLS + 0.72, gy, planterW, gy % 6.8 < 3.4);
+    }
+    for (const [gx, gy] of STREET_TREES) {
+      this.streetSprite('tree_street', gx, gy, TILE_W * 1.35, (gx + gy) % 2 < 1);
+    }
+    for (const [gx, gy] of LAMPS) {
+      this.streetSprite('lamp_street', gx, gy, TILE_W * 0.55);
+    }
+    const scooters: Array<[number, number, boolean]> = [
+      [6.4, ROWS + 1.7, false],
+      [18.3, ROWS + 1.6, true],
+      [COLS + 1.7, 11.3, true],
+    ];
+    for (const [gx, gy, flip] of scooters) {
+      this.streetSprite('scooter', gx, gy, TILE_W * 0.95, flip);
+    }
+  }
+
+  /** Floor 2: the same street furniture, one storey below (baked with the
+   * drop — nothing outside needs to interleave with the balcony rail up
+   * here). Planter rows hug the G-floor wall, so they're hidden below. */
+  private paintStreetFurnitureBaked(rt: Phaser.GameObjects.RenderTexture, dy: number): void {
+    for (const [gx, gy] of STREET_TREES) {
+      this.rtStamp(rt, 'tree_street', gx, gy, TILE_W * 1.35, (gx + gy) % 2 < 1, dy);
+    }
+    for (const [gx, gy] of LAMPS) {
+      this.rtStamp(rt, 'lamp_street', gx, gy, TILE_W * 0.55, false, dy);
+    }
+    const scooters: Array<[number, number, boolean]> = [
+      [6.4, ROWS + 1.7, false],
+      [18.3, ROWS + 1.6, true],
+      [COLS + 1.7, 11.3, true],
+    ];
+    for (const [gx, gy, flip] of scooters) {
+      this.rtStamp(rt, 'scooter', gx, gy, TILE_W * 0.95, flip, dy);
+    }
+  }
+
+  /** Floor 2: our own ground-floor facade drops below the slab edge — the
+   * strongest "you are upstairs now" cue. Cream wall, teak sign band,
+   * dark shopfront openings, shadow line at the street. */
+  private paintOwnFacadeBand(rt: Phaser.GameObjects.RenderTexture, dy: number): void {
+    const g = this.make.graphics({ x: 0, y: 0 }, false);
+    const deco = (a: { x: number; y: number }, b: { x: number; y: number }): void => {
+      const quad = (
+        qa: { x: number; y: number },
+        qb: { x: number; y: number },
+        y0: number,
+        y1: number,
+        color: number,
+        alpha = 1,
+      ): void => {
+        g.fillStyle(color, alpha);
+        g.fillPoints(
+          [
+            new Phaser.Geom.Point(qa.x, qa.y + y0),
+            new Phaser.Geom.Point(qb.x, qb.y + y0),
+            new Phaser.Geom.Point(qb.x, qb.y + y1),
+            new Phaser.Geom.Point(qa.x, qa.y + y1),
+          ],
+          true,
+        );
+      };
+      const seg = (u0: number, u1: number, y0: number, y1: number, color: number, alpha = 1): void => {
+        const pA = { x: a.x + (b.x - a.x) * u0, y: a.y + (b.y - a.y) * u0 };
+        const pB = { x: a.x + (b.x - a.x) * u1, y: a.y + (b.y - a.y) * u1 };
+        quad(pA, pB, y0, y1, color, alpha);
+      };
+      quad(a, b, 0, dy, 0xe9dcc4);
+      quad(a, b, 14, 22, 0x8a5a2b); // teak sign band under the slab
+      // dark shopfront openings with awning lips along the ground floor
+      for (let u = 0.06; u < 0.88; u += 0.16) {
+        seg(u - 0.008, u + 0.098, 26, 34, 0x1e3d34);
+        seg(u, u + 0.09, 34, dy - 14, 0x243038, 0.92);
+      }
+      quad(a, b, dy - 8, dy, 0x16302a); // shadow line at the street
+    };
+    deco(isoPos(0, ROWS), isoPos(COLS, ROWS));
+    deco(isoPos(COLS, 0), isoPos(COLS, ROWS));
+    rt.draw(g, CAM.side, CAM.top);
+    g.destroy();
+  }
+
+  /** Floor 3: over the parapet you look DOWN into a shadowed street canyon
+   * with neighbour rooflines peeking out — not a same-level street. */
+  private paintRooftopBelow(rt: Phaser.GameObjects.RenderTexture): void {
+    const g = this.make.graphics({ x: 0, y: 0 }, false);
+    const A = isoPos(0, ROWS);
+    const B = isoPos(COLS, ROWS);
+    const C = isoPos(COLS, 0);
+    const canyon =
+      this.phase === 'night' ? 0x0d1420 : this.phase === 'dusk' ? 0x4a3a40 : 0x5c6672;
+    g.fillStyle(canyon, 1);
+    g.fillPoints(
+      [
+        new Phaser.Geom.Point(-CAM.side, A.y),
+        new Phaser.Geom.Point(A.x, A.y),
+        new Phaser.Geom.Point(B.x, B.y),
+        new Phaser.Geom.Point(C.x, C.y),
+        new Phaser.Geom.Point(WORLD_W + CAM.side, C.y),
+        new Phaser.Geom.Point(WORLD_W + CAM.side, WORLD_H + CAM.bottom),
+        new Phaser.Geom.Point(-CAM.side, WORLD_H + CAM.bottom),
+      ],
+      true,
+    );
+    // faint lane markings deep down in the canyon
+    g.lineStyle(4, 0xd8b23c, this.phase === 'night' ? 0.06 : 0.1);
+    for (let gx = -4; gx < COLS; gx += 2) {
+      const s = isoPos(gx + 0.15, ROWS + 3.5);
+      const e = isoPos(gx + 0.85, ROWS + 3.5);
+      g.lineBetween(s.x, s.y + 260, e.x, e.y + 260);
+    }
+    rt.draw(g, CAM.side, CAM.top);
+    g.destroy();
+    // neighbour rooflines peeking above the canyon edge
+    const peek = 470;
+    const bottoms: Array<[string, number, boolean]> = [
+      ['backdrop_shophouse_a', 3, false],
+      ['backdrop_shophouse_b', 9.5, true],
+      ['backdrop_shophouse_a', 16.5, true],
+    ];
+    for (const [key, u, flip] of bottoms) {
+      this.rtStamp(rt, key, u, ROWS + 1.2, 500, flip, peek);
+    }
+    const rights: Array<[string, number, boolean]> = [
+      ['backdrop_shophouse_b', 4, false],
+      ['backdrop_shophouse_a', 11, true],
+      ['backdrop_shophouse_b', 18, false],
+    ];
+    for (const [key, u, flip] of rights) {
+      this.rtStamp(rt, key, COLS + 1.2, u, 500, flip, peek);
+    }
+  }
+
+  /** Soft contact shadow so sprites sit ON the ground instead of floating. */
+  private groundShadow(x: number, y: number, w: number, depth: number, alpha = 0.12): void {
+    const g = this.add.graphics().setDepth(depth);
+    g.fillStyle(0x1a140c, alpha * 0.6);
+    g.fillEllipse(x, y - 2, w * 1.3, w * 0.42);
+    g.fillStyle(0x1a140c, alpha);
+    g.fillEllipse(x, y - 2, w * 0.95, w * 0.3);
+  }
+
+  /** Sky dressing above the skyline — bands, clouds / stars / moon by phase. */
+  private paintSky(g: Phaser.GameObjects.Graphics): void {
+    const L = -CAM.side;
+    const R = WORLD_W + CAM.side;
+    const T = -CAM.top;
+    const puff = (fx: number, y: number, s: number, a: number): void => {
+      const x = L + (R - L) * fx;
+      g.fillStyle(0xffffff, a);
+      g.fillEllipse(x, y, 150 * s, 44 * s);
+      g.fillEllipse(x - 55 * s, y + 12 * s, 100 * s, 34 * s);
+      g.fillEllipse(x + 60 * s, y + 10 * s, 110 * s, 36 * s);
+    };
+    if (this.phase === 'day') {
+      g.fillStyle(0xbfe0ef, 0.5);
+      g.fillRect(L, T, R - L, 130);
+      puff(0.12, T + 140, 1.1, 0.5);
+      puff(0.36, T + 210, 0.8, 0.4);
+      puff(0.58, T + 110, 1.3, 0.5);
+      puff(0.82, T + 190, 0.9, 0.45);
+      if (this.floor === 3) {
+        // low clouds drifting past — you are up in the sky now
+        puff(0.22, T + 340, 1.6, 0.4);
+        puff(0.72, T + 430, 1.25, 0.34);
+      }
+    } else if (this.phase === 'dusk') {
+      g.fillStyle(0xffb066, 0.3);
+      g.fillRect(L, T, R - L, 160);
+      g.fillStyle(0xe07a9a, 0.22);
+      g.fillRect(L, T + 160, R - L, 120);
+      puff(0.3, T + 150, 1.1, 0.14);
+      puff(0.7, T + 220, 0.9, 0.12);
+    } else {
+      g.fillStyle(0x050b16, 0.5);
+      g.fillRect(L, T, R - L, 150);
+      // deterministic star field (no flicker across scene restarts)
+      for (let i = 0; i < 80; i++) {
+        const x = L + ((i * 397) % (R - L));
+        const y = T + ((i * 211) % 300);
+        g.fillStyle(0xdfe9ff, 0.35 + ((i * 53) % 45) / 100);
+        g.fillCircle(x, y, i % 3 === 0 ? 2 : 1.3);
+      }
+      const mx = L + (R - L) * 0.7;
+      g.fillStyle(0xf4ecd8, 0.12);
+      g.fillCircle(mx, T + 130, 46);
+      g.fillStyle(0xf4ecd8, 0.95);
+      g.fillCircle(mx, T + 130, 19);
+    }
+  }
+
+  /** One row of neighbour buildings hugging a back edge. far = hazy backdrop
+   * layer (silhouette only); near rows get windows, roofs, tanks, billboard. */
+  private paintNeighborRow(
+    g: Phaser.GameObjects.Graphics,
+    blocks: NeighborBlock[],
+    edge: 'ne' | 'nw',
+    far: boolean,
+    dy = 0,
+  ): void {
+    // edge 'ne' = the gy=0 wall (blocks extend to gy<0); 'nw' = the gx=0 wall
+    const base = (u: number, off: number): { x: number; y: number } =>
+      edge === 'ne' ? isoPos(u, -off) : isoPos(-off, u);
+    const P = (a: { x: number; y: number }, b: { x: number; y: number }, u: number, hh: number): Phaser.Geom.Point =>
+      new Phaser.Geom.Point(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u - hh + dy);
+    const quad = (
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      u0: number,
+      u1: number,
+      h0: number,
+      h1: number,
+      color: number,
+      alpha = 1,
+    ): void => {
+      g.fillStyle(color, alpha);
+      g.fillPoints([P(a, b, u0, h1), P(a, b, u1, h1), P(a, b, u1, h0), P(a, b, u0, h0)], true);
+    };
+    const hazeColor =
+      this.phase === 'day' ? 0x9fb6c4 : this.phase === 'dusk' ? 0x6a4a5c : 0x141d2e;
+    // back-of-roof shift: one tile further from camera along the edge normal
+    const shift = edge === 'ne' ? { x: TILE_W / 2, y: -TILE_H / 2 } : { x: -TILE_W / 2, y: -TILE_H / 2 };
+
+    for (let bi = 0; bi < blocks.length; bi++) {
+      const blk = blocks[bi];
+      const a = base(blk.u0, blk.off);
+      const b = base(blk.u1, blk.off);
+      if (far) {
+        quad(a, b, 0, 1, 0, blk.h, hazeColor, 0.6);
+        if (this.phase === 'night') {
+          // sparse far-city window lights
+          for (let i = 0; i < 14; i++) {
+            if ((i * 7 + bi * 5) % 3 === 0) continue;
+            const u = 0.08 + ((i * 37) % 84) / 100;
+            const hh = 60 + ((i * 61 + bi * 29) % (blk.h - 100));
+            const p = P(a, b, u, hh);
+            g.fillStyle(0xffd98a, 0.5);
+            g.fillRect(p.x, p.y, 3, 5);
+          }
+        }
+        continue;
+      }
+      const cSide = Phaser.Display.Color.IntegerToColor(blk.c).darken(14).color;
+      const cRoof = Phaser.Display.Color.IntegerToColor(blk.c).darken(30).color;
+      // facade + slim side return + roof slab
+      quad(a, b, 0, 1, 0, blk.h, blk.c);
+      const roofA = P(a, b, 0, blk.h);
+      const roofB = P(a, b, 1, blk.h);
+      g.fillStyle(cRoof, 1);
+      g.fillPoints(
+        [
+          roofA,
+          roofB,
+          new Phaser.Geom.Point(roofB.x + shift.x, roofB.y + shift.y),
+          new Phaser.Geom.Point(roofA.x + shift.x, roofA.y + shift.y),
+        ],
+        true,
+      );
+      quad(a, b, 0, 1, blk.h - 8, blk.h, cSide); // parapet lip
+      // window grid — lit pattern is deterministic so restarts don't reshuffle
+      const cols = blk.tower ? 4 : Math.max(3, Math.round((blk.u1 - blk.u0) * 1.6));
+      const du = 0.84 / cols;
+      for (let ci = 0; ci < cols; ci++) {
+        for (let hy = 46; hy < blk.h - 40; hy += 46) {
+          const u0 = 0.08 + ci * du;
+          const lit = (ci * 7 + hy / 46 + bi * 3) % 4 < 2;
+          let wc = 0xa8c4c9;
+          let wa = 0.55;
+          if (this.phase === 'night') {
+            wc = lit ? 0xffd98a : 0x18222e;
+            wa = lit ? 0.92 : 0.85;
+          } else if (this.phase === 'dusk') {
+            wc = lit ? 0xffc48a : 0x9fb4c0;
+            wa = 0.7;
+          }
+          quad(a, b, u0, u0 + du * 0.55, hy, hy + 26, wc, wa);
+        }
+      }
+      if (blk.tower && this.phase === 'night') {
+        const tip = P(a, b, 0.5, blk.h + 6);
+        g.fillStyle(0xff4444, 0.9);
+        g.fillCircle(tip.x, tip.y, 3.5);
+      }
+      if (blk.tank) {
+        // rooftop water tank — the Bangkok skyline signature
+        const t = P(a, b, 0.3, blk.h + 2);
+        g.fillStyle(0x8f9ba0, 1);
+        g.fillRect(t.x - 14, t.y - 30, 28, 30);
+        g.fillStyle(0xa8b4b8, 1);
+        g.fillEllipse(t.x, t.y - 30, 28, 10);
+      }
+    }
+    // rooftop billboard (NE near row only) — neon shapes, no lettering
+    if (edge === 'ne' && !far) {
+      const a = base(BILLBOARD.gx0, -BILLBOARD.gy);
+      const b = base(BILLBOARD.gx1, -BILLBOARD.gy);
+      quad(a, b, 0.1, 0.9, BILLBOARD.h + 10, BILLBOARD.h + 74, 0x22262b, 0.95);
+      const p0 = P(a, b, 0.1, BILLBOARD.h + 42);
+      const p1 = P(a, b, 0.9, BILLBOARD.h + 42);
+      if (this.phase === 'night' || this.phase === 'dusk') {
+        g.lineStyle(3, 0xff5fa8, 0.95);
+        g.strokeRoundedRect(
+          Math.min(p0.x, p1.x) + 10,
+          Math.min(p0.y, p1.y) - 16,
+          Math.abs(p1.x - p0.x) - 20,
+          34,
+          10,
+        );
+      } else {
+        g.fillStyle(0xd8dde0, 0.9);
+        g.fillRect(Math.min(p0.x, p1.x) + 10, Math.min(p0.y, p1.y) - 14, Math.abs(p1.x - p0.x) - 20, 30);
+      }
+    }
+  }
+
+  /** Ground ring past the lot: sidewalk → soi (asphalt + dashes + zebra) →
+   * kerb → green verge on the front edges; service alley behind the walls. */
+  private paintStreetRing(g: Phaser.GameObjects.Graphics): void {
+    const road = this.phase === 'night' ? 0x2e2f36 : 0x43454c;
+    const side1 = 0xd9d0bd;
+    const side2 = 0xcfc5b0;
+    const kerb = 0xbfb49c;
+    const grass1 = 0x718a52;
+    const grass2 = 0x67804b;
+    // distant-ground base under the far bottom corner, where the tile ring
+    // runs out before the camera margin does
+    g.fillStyle(this.phase === 'night' ? 0x3d4a35 : 0x5f7846, 1);
+    g.fillRect(-CAM.side, WORLD_H - TILE_H * 5, WORLD_W + CAM.side * 2, CAM.bottom + TILE_H * 6);
+    for (let gy = -EXT; gy < ROWS + EXT; gy++) {
+      for (let gx = -EXT; gx < COLS + EXT; gx++) {
+        const inside = gx >= 0 && gx < COLS && gy >= 0 && gy < ROWS;
+        if (inside) continue;
+        let color: number;
+        if (gx >= COLS || gy >= ROWS) {
+          const d = Math.max(gx - COLS, gy - ROWS);
+          if (d <= 1) color = (gx + gy) % 2 === 0 ? side1 : side2;
+          else if (d <= 4) color = road;
+          else if (d === 5) color = kerb;
+          else color = (gx * 3 + gy) % 3 === 0 ? grass2 : grass1;
+        } else {
+          // narrow service alley behind the building; past it the neighbour
+          // blocks + sky take over (a deep band would paint over the skyline)
+          if (Math.max(-gx, -gy) > 2) continue;
+          color = (gx + gy) % 2 === 0 ? 0x8f8878 : 0x958e7d;
+        }
+        g.fillStyle(color, 0.95);
+        this.fillDiamond(g, gx, gy);
+      }
+    }
+    // lane dashes down the middle of each soi
+    g.lineStyle(5, 0xd8b23c, 0.45);
+    for (let gx = -6; gx < COLS - 1; gx += 2) {
+      const s = isoPos(gx + 0.15, ROWS + 3.5);
+      const e = isoPos(gx + 0.85, ROWS + 3.5);
+      g.lineBetween(s.x, s.y, e.x, e.y);
+    }
+    for (let gy = -6; gy < ROWS - 1; gy += 2) {
+      const s = isoPos(COLS + 3.5, gy + 0.15);
+      const e = isoPos(COLS + 3.5, gy + 0.85);
+      g.lineBetween(s.x, s.y, e.x, e.y);
+    }
+    // zebra crossing continuing the gate walkway across the soi
+    g.lineStyle(9, 0xe6dfcf, 0.8);
+    for (let i = 0; i < 6; i++) {
+      const s = isoPos(ENTRANCE.start + 0.35 + i * 0.62, ROWS + 2.15);
+      const e = isoPos(ENTRANCE.start + 0.35 + i * 0.62, ROWS + 4.85);
+      g.lineBetween(s.x, s.y, e.x, e.y);
+    }
+  }
+
+  /** Lamp posts, street trees, bushes — baked with the ring. */
+  private paintStreetProps(g: Phaser.GameObjects.Graphics): void {
+    for (const [gx, gy] of LAMPS) {
+      const p = isoPos(gx, gy);
+      g.lineStyle(4, 0x2a2a28, 1);
+      g.lineBetween(p.x, p.y, p.x, p.y - 92);
+      g.fillStyle(0x33322e, 1);
+      g.fillCircle(p.x, p.y - 92, 6);
+    }
+    for (let i = 0; i < STREET_TREES.length; i++) {
+      const [gx, gy] = STREET_TREES[i];
+      const p = isoPos(gx, gy);
+      g.lineStyle(6, 0x4a3a28, 1);
+      g.lineBetween(p.x, p.y, p.x, p.y - 46);
+      g.fillStyle(0x4c6b3c, 1);
+      g.fillEllipse(p.x, p.y - 64, 84, 62);
+      g.fillStyle(0x5f8148, 1);
+      g.fillEllipse(p.x - 8, p.y - 72, 62, 46);
+      g.fillStyle(0x6f935a, 1);
+      g.fillEllipse(p.x + 10, p.y - 60, 40, 30);
+      // bush at the foot, offset per tree
+      g.fillStyle(0x55703f, 1);
+      g.fillEllipse(p.x + (i % 2 === 0 ? 46 : -42), p.y + 6, 44, 22);
+    }
+  }
+
+  /** Live additive layer over the baked street: lamp pools + billboard halo.
+   * Kept tiny — the baked RT can't do additive blending. */
+  private drawStreetGlow(): void {
+    if (this.phase === 'day') return;
+    // depth over the front rail: light naturally bleeds over a low wall
+    const glow = this.add.graphics().setDepth(8500);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    // the sprite lamp's head hangs off a curved arm up-left of the base;
+    // the procedural fallback pole holds it straight up. Head offset comes
+    // from the actual texture ratio (the post-processed crop varies).
+    const lw = TILE_W * 0.55;
+    const spriteLamp = this.tex('lamp_street');
+    let headDx = 0;
+    let headDy = -92;
+    if (spriteLamp) {
+      const src = this.textures.get('lamp_street').getSourceImage();
+      const lh = lw * (src.height / src.width);
+      headDx = -lw * 0.28;
+      headDy = -lh * 0.85;
+    }
+    for (const [gx, gy] of LAMPS) {
+      const p = isoPos(gx, gy);
+      glow.fillStyle(0xffc978, 0.3);
+      glow.fillCircle(p.x + headDx, p.y + headDy, 22);
+      glow.fillStyle(0xffb45e, 0.1);
+      glow.fillEllipse(p.x + headDx, p.y + 4, 150, 62);
+    }
+    const a = isoPos(BILLBOARD.gx0, BILLBOARD.gy);
+    const b = isoPos(BILLBOARD.gx1, BILLBOARD.gy);
+    glow.fillStyle(0xff5fa8, 0.12);
+    glow.fillEllipse((a.x + b.x) / 2, (a.y + b.y) / 2 - BILLBOARD.h - 42, Math.abs(b.x - a.x), 80);
   }
 
   private fillDiamond(g: Phaser.GameObjects.Graphics, gx: number, gy: number): void {
@@ -782,6 +1541,7 @@ export class WorldScene extends Phaser.Scene {
     if (!this.tex(key)) return;
     const p = isoPos(gx, gy);
     const y = p.y + TILE_H * 0.35;
+    this.groundShadow(p.x, y, widthPx * 0.72, y - 1);
     const img = this.add.image(p.x, y, key).setOrigin(0.5, 1).setDepth(y);
     img.setDisplaySize(widthPx, (widthPx * img.height) / img.width);
   }
@@ -880,9 +1640,10 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private makeActor(color: number, name: string): Phaser.GameObjects.Container {
+    const shadow = this.add.ellipse(0, 19, 36, 13, 0x1a140c, 0.18);
     const body = this.add.rectangle(0, 0, 26, 34, color).setStrokeStyle(2, 0x0b1a22);
     const label = this.add.text(0, -30, name, { color: '#eaf6ff', fontSize: '12px' }).setOrigin(0.5);
-    return this.add.container(0, 0, [body, label]);
+    return this.add.container(0, 0, [shadow, body, label]);
   }
 
   private createAvatar(): void {
@@ -1034,9 +1795,11 @@ export class WorldScene extends Phaser.Scene {
     if (this.tex(fk)) {
       const cx = (l.x + r.x) / 2;
       const anchorY = b.y - TILE_H * 0.55;
-      facade = this.add.image(cx, anchorY, fk).setOrigin(0.5, 1).setDepth(anchorY);
       // fill the 4-tile unit so adjacent shops read continuous
       const w = TILE_W * 3.4;
+      // contact shadow seats the unit on the hall floor (no floating slab)
+      this.groundShadow(cx, anchorY + 6, w * 0.8, anchorY - 1, 0.15);
+      facade = this.add.image(cx, anchorY, fk).setOrigin(0.5, 1).setDepth(anchorY);
       facade.setDisplaySize(w, (w * facade.height) / facade.width);
       if (this.phase !== 'day' && p.status === 'RENTED') {
         this.drawShopNeon(cx, anchorY - facade.displayHeight, anchorY, w, p);
@@ -1311,8 +2074,9 @@ export class WorldScene extends Phaser.Scene {
       const key =
         this.floor === 1 && this.tex('table_communal') ? 'table_communal' : 'table_round';
       if (this.tex(key)) {
-        sprite = this.add.image(c.x, anchorY, key).setOrigin(0.5, 1).setDepth(anchorY);
         const w = key === 'table_communal' ? TILE_W * 1.55 : TILE_W * 0.95;
+        this.groundShadow(c.x, anchorY, w * 0.85, anchorY - 1);
+        sprite = this.add.image(c.x, anchorY, key).setOrigin(0.5, 1).setDepth(anchorY);
         sprite.setDisplaySize(w, (w * sprite.height) / sprite.width);
       } else {
         fallback = this.add
@@ -1610,6 +2374,7 @@ export class WorldScene extends Phaser.Scene {
       const c = isoPos(m.grid_x + 0.5, m.grid_y + 0.5);
       const anchorY = c.y + TILE_H * 0.35;
       if (this.tex('vending')) {
+        this.groundShadow(c.x, anchorY, TILE_W * 0.72, anchorY - 1);
         sprite = this.add.image(c.x, anchorY, 'vending').setOrigin(0.5, 1).setDepth(anchorY);
         // 1-tile footprint, ~150px tall per the grid standards
         const w = TILE_W * 0.85;
@@ -1753,6 +2518,7 @@ export class WorldScene extends Phaser.Scene {
     const cx = isoPos(BOOTH.gx + BOOTH.w / 2, BOOTH.gy + BOOTH.h / 2);
     const anchorY = cx.y + TILE_H * 0.7;
     if (this.tex('photobooth')) {
+      this.groundShadow(cx.x, anchorY, TILE_W * 1.4, anchorY - 1);
       const img = this.add.image(cx.x, anchorY, 'photobooth').setOrigin(0.5, 1).setDepth(anchorY);
       // 2×2-tile footprint, ~200px tall per the grid standards
       const w = TILE_W * 1.7;
